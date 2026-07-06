@@ -75,3 +75,20 @@ def imports_wasm_with_wit(tmp_path_factory: pytest.TempPathFactory) -> Path:
 @pytest.fixture(scope="session")
 def strings_wasm_with_wit(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return _stage_prebuilt("strings_50", tmp_path_factory.mktemp("strings_with_wit"))
+
+
+# ── SPEC §10 fixtures (producer model — loader capabilities) ────────────────────
+
+@pytest.fixture(scope="session")
+def init_check_wasm_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Prebuilt reactor module (no .wit): `_initialize` sets a global to 99."""
+    d = tmp_path_factory.mktemp("init_check")
+    p = d / "init_check.wasm"
+    p.write_bytes((FIXTURES / "init_check.wasm").read_bytes())
+    return p
+
+
+@pytest.fixture(scope="session")
+def wasi_io_wasm_with_wit(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Prebuilt modc library that calls console.log → imports fd_write."""
+    return _stage_prebuilt("wasi_io_50", tmp_path_factory.mktemp("wasi_io_with_wit"))

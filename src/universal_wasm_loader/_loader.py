@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import wasmtime
-from wasmtime import Engine, FuncType, Linker, Module, Store
+from wasmtime import Engine, FuncType, Linker, Module, Store, WasiConfig
 
 from ._abi import build_component_export_proxy, build_component_import_env
 from ._wit_parser import parse_wit
@@ -27,6 +27,19 @@ def _collect_raw_exports(
         if val is not None:
             result[exp.name] = val
     return result
+
+
+# SPEC §10.2 — imports in these namespaces are satisfied by the runtime's built-in
+# WASI implementation (linker.define_wasi), not the per-import stub loop.
+_WASI_MODULES = ("wasi_snapshot_preview1", "wasi_unstable")
+
+
+def _call_initialize(raw: dict[str, Any], store: Store) -> None:
+    """SPEC §10.1 — invoke a reactor module's `_initialize` exactly once after
+    instantiation, before any other export is used. No-op if not exported."""
+    init = raw.get("_initialize")
+    if isinstance(init, wasmtime.Func):
+        init(store)
 
 
 def _make_noop(n_results: int) -> Callable[..., Any]:
@@ -88,8 +101,21 @@ async def wasm_import(
         import_env = build_component_import_env(wit["imports"], host_callbacks, memory_ref, store)
 
     linker = Linker(engine)
+
+    # SPEC §10.2 — supply the minimal WASI Preview 1 surface from wasmtime's
+    # built-in implementation so I/O-using library modules (e.g. a modc lib that
+    # calls console.log → fd_write) instantiate in a host with no native WASI.
+    linker.define_wasi()
+    wasi_cfg = WasiConfig()
+    wasi_cfg.inherit_stdout()
+    wasi_cfg.inherit_stderr()
+    store.set_wasi(wasi_cfg)
+
     for imp in module.imports:
         if not isinstance(imp.type, FuncType):
+            continue
+        # WASI imports are handled by define_wasi above; don't double-define them.
+        if imp.module in _WASI_MODULES:
             continue
         ft: FuncType = imp.type
         imp_name = imp.name
@@ -103,6 +129,9 @@ async def wasm_import(
 
     instance = linker.instantiate(store, module)
     raw = _collect_raw_exports(module, instance, store)
+
+    # SPEC §10.1 — run the reactor initializer before any other export is called.
+    _call_initialize(raw, store)
 
     mem = raw.get("memory")
     if isinstance(mem, wasmtime.Memory):

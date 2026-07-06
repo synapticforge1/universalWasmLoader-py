@@ -130,3 +130,19 @@ async def test_instance_pool_acquire_release(math_wasm_path: Path) -> None:
     await pool.release(inst)
     inst2 = await pool.acquire()
     assert inst2 is inst
+
+
+# ── SPEC §10 — producer model (loader capabilities) ───────────────────────────
+
+async def test_spec10_initialize_called(init_check_wasm_path: Path) -> None:
+    # init_check.wasm has no .wit (raw exports); its _initialize sets a global to
+    # 99 that getValue reads — 99 proves the loader invoked _initialize.
+    mod = await wasm_import(init_check_wasm_path)
+    assert mod["getValue"]() == 99
+
+
+async def test_spec10_wasi_io_library_loads(wasi_io_wasm_with_wit: Path) -> None:
+    # wasi_io_50 is a modc lib that calls console.log → imports fd_write; it only
+    # instantiates because the loader supplies the minimal WASI-P1 shim (§10.2).
+    mod = await wasm_import(wasi_io_wasm_with_wit)
+    assert mod["logAndDouble"](21) == 42

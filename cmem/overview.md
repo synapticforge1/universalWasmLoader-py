@@ -44,7 +44,8 @@ tests/
   conftest.py      # pytest fixtures: compile fixture .wat -> .wasm for tests
   test_loader.py   # loader + ABI integration tests
   test_wit_parser.py
-  fixtures/        # math.{wat,wit}, bool_mod.{wat,wit}, imports_mod.{wat,wit}
+  fixtures/        # math.{wat,wit}, bool_mod.{wat,wit}, imports_mod.{wat,wit},
+                   # strings_50.{wasm,wit}, init_check.wasm, wasi_io_50.{wasm,wit} (§10)
 upstream/universalwasmloader-js/   # git submodule (reference impl + SPEC.md)
 ```
 
@@ -65,8 +66,18 @@ Idiomatic Python equivalents of the reference loader's `wasmImport` / `createSin
   - Without a WIT file: returns raw exports wrapped for direct calling
     (`_wrap_for_user` — `Func` → callable, `Global` → its value).
   - `host_callbacks` is a flat dict of host functions the module imports; WIT imports are
-    wrapped with ABI adaptation (`build_component_import_env`), and any unbound import is
-    satisfied with a typed no-op stub (`_make_noop`).
+    wrapped with ABI adaptation (`build_component_import_env`), and any unbound **non-WASI**
+    import is satisfied with a typed no-op stub (`_make_noop`).
+  - **SPEC §10 producer model (loader capabilities):**
+    - **§10.1** — after instantiation, `_call_initialize` runs a reactor module's
+      `_initialize` export exactly once before any other export is called (no-op if absent).
+    - **§10.2** — the minimal WASI Preview 1 surface is supplied by wasmtime-py's built-in
+      implementation: `linker.define_wasi()` + a `WasiConfig` (`inherit_stdout/stderr`) set on
+      the `Store`. Imports in the `wasi_snapshot_preview1` / `wasi_unstable` namespaces
+      (`_WASI_MODULES`) are skipped in the stub loop so they resolve to real WASI, letting
+      I/O-using library modules (e.g. a `modc` lib that calls `console.log` → `fd_write`)
+      instantiate in a host with no native WASI. Covered by the `test_spec10_*` tests
+      (`init_check.wasm`, `wasi_io_50.wasm`).
 - **`create_singleton(wasm_path, host_callbacks=None) -> Callable[[], Awaitable[dict]]`**
   — returns an async getter that instantiates once and returns the same instance on every
   call (CLI / DLL pattern). Guarded by an `asyncio.Lock`.
