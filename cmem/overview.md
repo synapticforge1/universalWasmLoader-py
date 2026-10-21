@@ -15,8 +15,9 @@ conformance tests. The JS repo is vendored as a git submodule at
   it in the wheel's `.dist-info` (as PEP 639 `License-File`).
 - **Status:** **PUBLISHED on PyPI** (`Development Status :: 5 - Production/Stable`). First release
   **1.0.0** uploaded 2026-06-19 via the OIDC Trusted-Publishing workflow; **1.0.1** uploaded
-  2026-06-19 (README trimmed to a user-facing PyPI page + clearer usage example). **Current /
-  latest published version: `1.0.1`.** Brought to parity with the `-c` and `-zig` ports on
+  2026-06-19 (README trimmed to a user-facing PyPI page + clearer usage example); **1.1.0** uploaded
+  2026-10-21 (SPEC §10 loader capabilities; first release from the `synapticforge1` org). **Current /
+  latest published version: `1.1.0`.** Brought to parity with the `-c` and `-zig` ports on
   2026-06-19. Live at <https://pypi.org/project/universal-wasm-loader/>.
 - **Home:** <https://github.com/synapticforge1/universalWasmLoader-py> — the **`synapticforge1`**
   GitHub organization (owner-controlled). Transferred from the personal account `jrmarcum`
@@ -38,7 +39,8 @@ links. The workflow's clone URL uses `${{ github.repository }}`, so it needed no
 **Done on PyPI (owner, 2026-10-21):** the Trusted Publisher was re-registered for Owner
 `synapticforge1` (Repository `universalWasmLoader-py`, Workflow `publish.yml`, Environment `pypi`).
 The OIDC claim now carries `repository_owner: synapticforge1`; the old `jrmarcum` publisher would
-have made `mint-token` refuse. The first CI publish after the transfer is the live proof.
+have made `mint-token` refuse. **Proven live 2026-10-21** — the `1.1.0` CI publish minted its token
+through the new publisher.
 
 **Still to confirm on GitHub (not checked from here):** the `pypi` Environment's required reviewers
 and `v*`-tag deployment rule under the org, and the `synapticforge1` Actions policy (the
@@ -58,8 +60,8 @@ not changed by this move.
 - **Package/env manager:** pixi (conda-forge channel for Python; PyPI for deps). Editable
   install of the package itself plus a `dev` feature for the test/lint/type tools.
 - **Build backend:** hatchling (wheel packages `src/universal_wasm_loader`).
-- **Registry:** PyPI, package name **`universal-wasm-loader`** (latest published **`1.0.1`**;
-  `1.0.0` also live and immutable).
+- **Registry:** PyPI, package name **`universal-wasm-loader`** (latest published **`1.1.0`**;
+  `1.0.0` and `1.0.1` also live and immutable).
 
 ## Repository layout
 
@@ -310,12 +312,18 @@ flags/guards/idempotency). These replace the old `scripts/bump.py` + tag-only `s
   The baseline under `pixi run python -m pytest` matches the uv run below (13/13). Without `gh` the publish workflow is dispatched from
   the GitHub Actions tab (Run workflow → `ref` = the tag; "Use workflow from: Tag v…").
 
-### Unreleased on `main` (2026-10-21)
+### Release `1.1.0` (2026-10-21) — first release from `synapticforge1`
 
-- `a51c8da` **feat(spec10)** — SPEC §10 loader capabilities (`_initialize` + built-in WASI). A new
-  feature, so the next release is a **minor** bump (`1.0.1` → `1.1.0`).
-- The `synapticforge1` transfer edits (repo URLs in `pyproject.toml` / README / `.gitmodules` /
-  `publish.yml` comments, memory).
+- **Contents:** `a51c8da` **feat(spec10)** — SPEC §10 loader capabilities (`_initialize` + built-in
+  WASI) — hence a **minor** bump `1.0.1` → `1.1.0` (owner-confirmed); plus the `synapticforge1`
+  transfer edits (repo URLs in `pyproject.toml` / README / `.gitmodules` / `publish.yml` comments),
+  the first committed `pixi.lock`, and memory.
+- **Flow:** `bash scripts/bump-version.sh minor` (commit `fc847fa`) → `bash scripts/release.sh`
+  (pixi build of sdist + wheel, annotated tag `v1.1.0`, pushed `main` + tag; no GitHub Release —
+  `gh` absent) → local `pixi run python -m twine check dist/*` PASSED → owner ran the `Publish`
+  workflow from the Actions tab against `v1.1.0` and approved the `pypi` environment.
+- **Verified on PyPI 2026-10-21** (JSON API): latest = `1.1.0`, wheel + sdist uploaded
+  22:55 UTC; PyPI's project links now show `github.com/synapticforge1/universalWasmLoader-py`.
 - **Test baseline 2026-10-21** (`uv run --extra dev python -m pytest tests`, wasmtime from PyPI):
   **13 passed / 13 failed.** All 13 failures are the known `.wat`-fixture harness caveat ("input was
   not valid utf-8"); every string-ABI, SPEC §10 and WIT-parser test passes.
