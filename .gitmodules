@@ -1,3 +1,3 @@
 [submodule "upstream/universalwasmloader-js"]
 	path = upstream/universalwasmloader-js
-	url = https://github.com/jrmarcum/universalWasmLoader-js.git
+	url = https://github.com/synapticforge1/universalWasmLoader-js.git

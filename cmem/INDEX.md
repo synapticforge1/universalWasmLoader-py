@@ -30,4 +30,4 @@ comprehensive audit across tested AND untested paths for: (1) workarounds / temp
 
 | File | What it holds |
 | --- | --- |
-| [overview.md](overview.md) | What this loader port is (Python/wasmtime), API surface, ABI/SPEC 3.0.0 conformance, tests, the release toolchain (`bump-version`/`release`/`publish` in paired `.sh`+`.nu`), the token-free OIDC publish workflow, and the **PyPI release history — `1.0.0` + `1.0.1` published 2026-06-19** (latest `1.0.1`) |
+| [overview.md](overview.md) | What this loader port is (Python/wasmtime), its home (**GitHub org `synapticforge1`**, transferred from `jrmarcum` 2026-10-21; in-repo URLs updated + PyPI Trusted Publisher re-registered), what's unreleased on `main` (SPEC §10 → next is `1.1.0`), the 2026-10-21 test baseline + dev-host tooling,, API surface, ABI/SPEC 3.0.0 conformance, tests, the release toolchain (`bump-version`/`release`/`publish` in paired `.sh`+`.nu`), the token-free OIDC publish workflow, and the **PyPI release history — `1.0.0` + `1.0.1` published 2026-06-19** (latest `1.0.1`) |

@@ -18,6 +18,35 @@ conformance tests. The JS repo is vendored as a git submodule at
   2026-06-19 (README trimmed to a user-facing PyPI page + clearer usage example). **Current /
   latest published version: `1.0.1`.** Brought to parity with the `-c` and `-zig` ports on
   2026-06-19. Live at <https://pypi.org/project/universal-wasm-loader/>.
+- **Home:** <https://github.com/synapticforge1/universalWasmLoader-py> — the **`synapticforge1`**
+  GitHub organization (owner-controlled). Transferred from the personal account `jrmarcum`
+  (confirmed via the GitHub API 2026-10-21); see "Repository transfer" below. The upstream JS
+  reference moved with it: <https://github.com/synapticforge1/universalWasmLoader-js>.
+
+## Repository transfer → `synapticforge1` org (recorded 2026-10-21)
+
+Both `universalWasmLoader-py` and `universalWasmLoader-js` were transferred from `jrmarcum` to the
+owner's **`synapticforge1`** organization. GitHub redirects the old `jrmarcum/...` URLs, so nothing
+broke immediately.
+
+**Done in-repo (2026-10-21):** `git remote origin` → `synapticforge1/universalWasmLoader-py.git`
+(verified with `git ls-remote`); `.gitmodules` upstream URL → `synapticforge1/universalWasmLoader-js.git`
++ `git submodule sync`; `pyproject.toml` `[project.urls]` (reaches PyPI only with the next published
+version); `publish.yml` comments (Trusted-Publisher owner, Actions-policy wording); README + CLAUDE.md
+links. The workflow's clone URL uses `${{ github.repository }}`, so it needed no change.
+
+**Done on PyPI (owner, 2026-10-21):** the Trusted Publisher was re-registered for Owner
+`synapticforge1` (Repository `universalWasmLoader-py`, Workflow `publish.yml`, Environment `pypi`).
+The OIDC claim now carries `repository_owner: synapticforge1`; the old `jrmarcum` publisher would
+have made `mint-token` refuse. The first CI publish after the transfer is the live proof.
+
+**Still to confirm on GitHub (not checked from here):** the `pypi` Environment's required reviewers
+and `v*`-tag deployment rule under the org, and the `synapticforge1` Actions policy (the
+`run:`-only workflow is safe under any policy).
+
+The PyPI package name (`universal-wasm-loader`) and the PyPI account are unaffected by the transfer.
+The JSR scope `@jrmarcum/...` used by the JS upstream is a JSR scope, not a GitHub owner, and is
+not changed by this move.
 
 ## Language / runtime
 
@@ -214,10 +243,12 @@ flags/guards/idempotency). These replace the old `scripts/bump.py` + tag-only `s
   (2) POST `{"token": <jwt>}` to `https://pypi.org/_/oidc/mint-token` → ephemeral project-scoped PyPI
   token (minutes-long); (3) `twine upload` with `TWINE_PASSWORD=<minted token>`. Both tokens are
   `::add-mask::`ed. Nothing is persisted in secrets.
-- **CRITICAL `run:`-only constraint (unchanged).** The org's Actions policy permits only
-  `jrmarcum`-owned actions; ANY third-party `uses:` (`actions/checkout`, `actions/setup-python`,
-  `pypa/gh-action-pypi-publish`) causes `startup_failure`. Every step is a plain `run:` step —
-  including the OIDC exchange. Do not reintroduce `uses:`.
+- **CRITICAL `run:`-only constraint (unchanged).** The Actions policy (under `jrmarcum`, where this
+  was written) permitted only `jrmarcum`-owned actions; ANY third-party `uses:` (`actions/checkout`,
+  `actions/setup-python`, `pypa/gh-action-pypi-publish`) caused `startup_failure`. Since the
+  2026-10-21 transfer the governing policy is the **`synapticforge1`** org's — not yet re-verified.
+  Every step is a plain `run:` step — including the OIDC exchange — which is safe under either
+  policy. Do not reintroduce `uses:`.
 - Steps: checkout via `git clone --depth=1 --branch <input ref> <token-auth url> .`; `pip install
   --upgrade build "twine>=6.1.0" "packaging>=24.2"`; run `pytest` as an **advisory** gate (`|| true`)
   because the `.wat` fixtures have the known wasmtime harness caveat above; build with `python -m
@@ -236,8 +267,10 @@ flags/guards/idempotency). These replace the old `scripts/bump.py` + tag-only `s
    - *Local `publish` script:* export `TWINE_USERNAME=__token__` / `TWINE_PASSWORD=pypi-…`
      (project-scoped API token; or a `[pypi]` entry in `~/.pypirc`).
    - *Manual CI workflow:* register a **Trusted Publisher** on PyPI (no stored token) — a *pending
-     publisher* before the project's first upload — matching Owner `jrmarcum`, Repository
-     `universalWasmLoader-py`, Workflow `publish.yml`, Environment **`pypi`**.
+     publisher* before the project's first upload — matching Owner **`synapticforge1`** (was
+     `jrmarcum` until the 2026-10-21 transfer; **the PyPI-side publisher must be re-registered
+     with the new owner before the next CI publish**), Repository `universalWasmLoader-py`,
+     Workflow `publish.yml`, Environment **`pypi`**.
      **Hardening applied (2026-06-19):** the job runs in a protected GitHub Environment `pypi`
      (`environment: pypi`) with **required reviewers** + a **`v*`-tag-only** deployment rule, and the
      PyPI publisher requires that same `pypi` environment claim — so every publish pauses for a human
@@ -264,8 +297,22 @@ flags/guards/idempotency). These replace the old `scripts/bump.py` + tag-only `s
   string, which does nothing) and scrubbed before any commit (it reached **no** commit). Lesson: the
   OIDC CI path is preferred (no token touches the machine); for local use set
   `$env:TWINE_PASSWORD`/`$env.TWINE_PASSWORD`, never edit the script. The pasted token was rotated.
-- **Tooling on the dev host:** no Python/pixi/twine (only the Windows Store `python` stub); `nu`
-  0.113.1 + `git` available, `gh` unauthenticated → **no GitHub Releases created** for `v1.0.0`/
-  `v1.0.1` (tags pushed, which is all the publish needs). To add Release notes later:
+- **Tooling on the dev host (as of 2026-06-19):** no Python/pixi/twine (only the Windows Store `python`
+  stub); `nu` 0.113.1 + `git` available, `gh` unauthenticated → **no GitHub Releases created** for
+  `v1.0.0`/`v1.0.1` (tags pushed, which is all the publish needs). To add Release notes later:
   `gh auth login` then `gh release create v1.0.0` / `v1.0.1`. All script verification on this host
   was via `--dry-run` (both `.sh` and `.nu`); the real builds/uploads ran on the GitHub runner.
+- **Tooling on the dev host (re-checked 2026-10-21):** `nu`, `pixi` and `gh` are **absent**; `uv`
+  (scoop) is present with a gitignored `.venv` and an untracked `uv.lock` (not adopted — this is a
+  pixi project); the owner is reinstalling pixi. Without `gh` the publish workflow is dispatched from
+  the GitHub Actions tab (Run workflow → `ref` = the tag; "Use workflow from: Tag v…").
+
+### Unreleased on `main` (2026-10-21)
+
+- `a51c8da` **feat(spec10)** — SPEC §10 loader capabilities (`_initialize` + built-in WASI). A new
+  feature, so the next release is a **minor** bump (`1.0.1` → `1.1.0`).
+- The `synapticforge1` transfer edits (repo URLs in `pyproject.toml` / README / `.gitmodules` /
+  `publish.yml` comments, memory).
+- **Test baseline 2026-10-21** (`uv run --extra dev python -m pytest tests`, wasmtime from PyPI):
+  **13 passed / 13 failed.** All 13 failures are the known `.wat`-fixture harness caveat ("input was
+  not valid utf-8"); every string-ABI, SPEC §10 and WIT-parser test passes.

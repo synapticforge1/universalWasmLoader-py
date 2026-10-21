@@ -1,7 +1,7 @@
 # universalWasmLoader-py
 
 Universal WASM loader for Python — the Python port of
-[universalWasmLoader-js](https://github.com/jrmarcum/universalWasmLoader-js). Loads and
+[universalWasmLoader-js](https://github.com/synapticforge1/universalWasmLoader-js). Loads and
 instantiates WebAssembly modules and, when a companion `.wit` file is present, applies the
 Canonical ABI so you call WIT exports with idiomatic Python values (`int`/`float`, `bool`,
 `str`) instead of raw i32/pointer pairs.
@@ -54,5 +54,5 @@ print(exports["strLen"]("hello")) # 5                 (WIT export `str-len`)
 
 `create_singleton()` (one shared instance) and `InstancePool()` (N instances for
 concurrent workloads) are also exported. See the
-[project on GitHub](https://github.com/jrmarcum/universalWasmLoader-py) for the
+[project on GitHub](https://github.com/synapticforge1/universalWasmLoader-py) for the
 full API, examples, and source.

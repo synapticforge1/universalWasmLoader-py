@@ -1,11 +1,18 @@
 > **⚠️ PORTABLE PROJECT MEMORY LIVES IN `cmem/`** — start at [`cmem/INDEX.md`](cmem/INDEX.md).
+
+> **At session start, read `../../cmem/handoffs.md` for letters addressed to this repo.** The workspace
+> session (`../../cmem/INDEX.md`) reviews across the sibling repos and reports there; nothing is ever
+> written into this repo from outside. (owner directive, 2026-09-20)
+
 > When saving new project memory, write it into the matching `cmem/` topic file (and refresh its
 > pointer in `cmem/INDEX.md`). The **"update the project memory"** and **"look for code issues"**
 > triggers are defined in `cmem/INDEX.md` and are binding on every agent.
 
 # universalWasmLoader-py
 
-Python port of the [Universal WASM Loader](https://github.com/jrmarcum/universalWasmLoader-js).
+Python port of the [Universal WASM Loader](https://github.com/synapticforge1/universalWasmLoader-js).
+Hosted at `github.com/synapticforge1/universalWasmLoader-py` (org `synapticforge1`; moved from
+`jrmarcum` 2026-10-21 — see `cmem/overview.md` "Repository transfer").
 Loads and instantiates WebAssembly modules and, when a companion `.wit` file is present, applies
 the Canonical ABI so you call WIT exports with idiomatic Python values (`int`/`float`, `bool`,
 `str`). Built on [`wasmtime`](https://pypi.org/project/wasmtime/) (wasmtime-py). See

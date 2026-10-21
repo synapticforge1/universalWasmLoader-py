@@ -32,8 +32,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/jrmarcum/universalWasmLoader-py"
-Repository = "https://github.com/jrmarcum/universalWasmLoader-py"
+Homepage = "https://github.com/synapticforge1/universalWasmLoader-py"
+Repository = "https://github.com/synapticforge1/universalWasmLoader-py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/universal_wasm_loader"]

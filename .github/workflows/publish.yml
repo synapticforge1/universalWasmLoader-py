@@ -6,9 +6,10 @@ name: Publish
 # hand (Actions tab → Run workflow) against the release tag.
 #
 # Auth is PyPI Trusted Publishing via short-lived OIDC — NO long-lived PyPI token
-# is stored in repo secrets, so there is nothing to leak. Because this org's
-# Actions policy permits only jrmarcum-owned actions (any third-party `uses:`
-# causes a startup_failure), we perform the OIDC exchange by hand in `run:` steps
+# is stored in repo secrets, so there is nothing to leak. Because the Actions
+# policy may permit only owner-owned actions (under the previous owner, any
+# third-party `uses:` caused a startup_failure), we perform the OIDC exchange by
+# hand in `run:` steps
 # instead of using pypa/gh-action-pypi-publish:
 #   1. ask the runner for an OIDC JWT (audience "pypi"),
 #   2. exchange it at https://pypi.org/_/oidc/mint-token for an ephemeral,
@@ -17,7 +18,8 @@ name: Publish
 #
 # One-time PyPI setup: register a Trusted Publisher (or, before the project
 # exists, a "pending publisher") matching this workflow —
-#   Owner: jrmarcum   Repository: universalWasmLoader-py   Workflow: publish.yml
+#   Owner: synapticforge1   Repository: universalWasmLoader-py   Workflow: publish.yml
+#   Environment: pypi
 on:
   workflow_dispatch:
     inputs:
@@ -38,9 +40,10 @@ jobs:
       contents: read    # clone the repo at the release tag
 
     steps:
-      # NOTE: org policy permits only jrmarcum-owned actions. Any third-party
-      # `uses:` (actions/checkout, actions/setup-python, AND the usual
-      # pypa/gh-action-pypi-publish) causes a `startup_failure` — nothing runs.
+      # NOTE: the Actions policy may permit only owner-owned actions. Under the
+      # previous owner any third-party `uses:` (actions/checkout,
+      # actions/setup-python, AND the usual pypa/gh-action-pypi-publish) caused a
+      # `startup_failure` — nothing ran.
       # Every step here MUST stay a plain `run:` step. Do NOT reintroduce `uses:`.
       - name: Checkout
         run: |
