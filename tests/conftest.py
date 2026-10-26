@@ -5,90 +5,80 @@ from pathlib import Path
 import pytest
 import wasmtime
 
+# The stamped reference set from universalWasmLoader-js, copied unmodified (SPEC §7, workspace
+# letter H7); test_fixtures.py checks it against fixtures.json. Never edit these by hand.
 FIXTURES = Path(__file__).parent / "fixtures"
+# Python-only fixtures for behaviour the reference set does not carry (version pinning).
+PY_FIXTURES = Path(__file__).parent / "py_fixtures"
+
+
+def _stage_raw(name: str, tmp_dir: Path) -> Path:
+    """Copy only the .wasm into a temp dir, so the loader finds no sibling .wit (raw path)."""
+    wasm_path = tmp_dir / f"{name}.wasm"
+    wasm_path.write_bytes((FIXTURES / f"{name}.wasm").read_bytes())
+    return wasm_path
 
 
 def _compile_wat(name: str, tmp_dir: Path) -> Path:
-    wat_text = (FIXTURES / f"{name}.wat").read_text(encoding="utf-8")
-    engine = wasmtime.Engine()
-    # Module() accepts WAT text directly; serialize() gives canonical binary
-    module = wasmtime.Module(engine, wat_text)
-    wasm_bytes = module.serialize()
+    # wat2wasm gives the binary module; Module.serialize() would give wasmtime's
+    # precompiled artifact, which is not a .wasm file (drift L8).
     wasm_path = tmp_dir / f"{name}.wasm"
-    wasm_path.write_bytes(wasm_bytes)
+    wat_text = (PY_FIXTURES / f"{name}.wat").read_text(encoding="utf-8")
+    wasm_path.write_bytes(wasmtime.wat2wasm(wat_text))
     return wasm_path
 
 
-def _add_wit(name: str, wasm_path: Path) -> Path:
-    wit_text = (FIXTURES / f"{name}.wit").read_text(encoding="utf-8")
-    (wasm_path.parent / f"{name}.wit").write_text(wit_text, encoding="utf-8")
-    return wasm_path
-
-
-def _stage_prebuilt(name: str, tmp_dir: Path) -> Path:
-    """Copy a prebuilt .wasm + companion .wit (produced by wasmtk) into a temp
-    dir so the loader's sibling-.wit auto-detection finds them."""
-    wasm_path = tmp_dir / f"{name}.wasm"
-    wasm_path.write_bytes((FIXTURES / f"{name}.wasm").read_bytes())
-    (tmp_dir / f"{name}.wit").write_text(
-        (FIXTURES / f"{name}.wit").read_text(encoding="utf-8"), encoding="utf-8"
-    )
-    return wasm_path
-
-
-# ── math fixtures ──────────────────────────────────────────────────────────────
+# ── reference set, WIT path (the .wit sits beside the .wasm) ────────────────────
 
 @pytest.fixture(scope="session")
-def math_wasm_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return _compile_wat("math", tmp_path_factory.mktemp("math_no_wit"))
+def math_wasm() -> Path:
+    return FIXTURES / "math_50.wasm"
 
 
 @pytest.fixture(scope="session")
-def math_wasm_with_wit(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    wasm = _compile_wat("math", tmp_path_factory.mktemp("math_with_wit"))
-    return _add_wit("math", wasm)
-
-
-# ── bool fixtures ──────────────────────────────────────────────────────────────
-
-@pytest.fixture(scope="session")
-def bool_wasm_with_wit(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    wasm = _compile_wat("bool_mod", tmp_path_factory.mktemp("bool_with_wit"))
-    return _add_wit("bool_mod", wasm)
-
-
-# ── imports fixtures ───────────────────────────────────────────────────────────
-
-@pytest.fixture(scope="session")
-def imports_wasm_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return _compile_wat("imports_mod", tmp_path_factory.mktemp("imports_no_wit"))
+def booleans_wasm() -> Path:
+    return FIXTURES / "booleans_50.wasm"
 
 
 @pytest.fixture(scope="session")
-def imports_wasm_with_wit(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    wasm = _compile_wat("imports_mod", tmp_path_factory.mktemp("imports_with_wit"))
-    return _add_wit("imports_mod", wasm)
+def strings_wasm() -> Path:
+    return FIXTURES / "strings_50.wasm"
 
-
-# ── strings fixture (prebuilt .wasm from wasmtk, SPEC 3.0.0 string ABI) ─────────
 
 @pytest.fixture(scope="session")
-def strings_wasm_with_wit(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return _stage_prebuilt("strings_50", tmp_path_factory.mktemp("strings_with_wit"))
+def imports_wasm() -> Path:
+    return FIXTURES / "imports_50.wasm"
+
+
+# ── reference set, raw path (no .wit) ───────────────────────────────────────────
+
+@pytest.fixture(scope="session")
+def math_wasm_raw(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return _stage_raw("math_50", tmp_path_factory.mktemp("math_raw"))
+
+
+@pytest.fixture(scope="session")
+def imports_wasm_raw(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return _stage_raw("imports_50", tmp_path_factory.mktemp("imports_raw"))
 
 
 # ── SPEC §10 fixtures (producer model — loader capabilities) ────────────────────
 
 @pytest.fixture(scope="session")
-def init_check_wasm_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Prebuilt reactor module (no .wit): `_initialize` sets a global to 99."""
-    d = tmp_path_factory.mktemp("init_check")
-    p = d / "init_check.wasm"
-    p.write_bytes((FIXTURES / "init_check.wasm").read_bytes())
-    return p
+def init_check_wasm_path() -> Path:
+    """Hand-written reactor module (no .wit): `_initialize` sets a global to 99."""
+    return FIXTURES / "init_check.wasm"
 
 
 @pytest.fixture(scope="session")
-def wasi_io_wasm_with_wit(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Prebuilt modc library that calls console.log → imports fd_write."""
-    return _stage_prebuilt("wasi_io_50", tmp_path_factory.mktemp("wasi_io_with_wit"))
+def wasi_io_wasm() -> Path:
+    """modc library that calls console.log → imports fd_write."""
+    return FIXTURES / "wasi_io_50.wasm"
+
+
+# ── Python-only ─────────────────────────────────────────────────────────────────
+
+@pytest.fixture(scope="session")
+def versioned_wasm_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Exports a `version` global = 1 and `calculate(a, b) = a + b`."""
+    return _compile_wat("versioned", tmp_path_factory.mktemp("versioned"))

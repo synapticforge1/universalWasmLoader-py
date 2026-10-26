@@ -72,11 +72,13 @@ src/universal_wasm_loader/
   _wit_parser.py   # regex WIT companion-file parser (parse_wit)
   _abi.py          # Canonical ABI bridge (import env + export proxy, string/bool marshalling)
 tests/
-  conftest.py      # pytest fixtures: compile fixture .wat -> .wasm for tests
+  conftest.py      # pytest fixtures: paths into fixtures/, raw staging, versioned.wat -> .wasm
   test_loader.py   # loader + ABI integration tests
+  test_fixtures.py # fixtures/ = the stamped reference set (sha256 vs fixtures.json)
   test_wit_parser.py
-  fixtures/        # math.{wat,wit}, bool_mod.{wat,wit}, imports_mod.{wat,wit},
-                   # strings_50.{wasm,wit}, init_check.wasm, wasi_io_50.{wasm,wit} (§10)
+  fixtures/        # the -js reference set, copied unmodified (H7): {math,booleans,strings,
+                   # imports,wasi_io}_50.{wasm,wit}, init_check.{wat,wasm}, fixtures.json
+  py_fixtures/     # Python-only: versioned.wat (`version` global, for @N pinning)
 upstream/universalwasmloader-js/   # git submodule (reference impl + SPEC.md)
 ```
 
@@ -173,24 +175,29 @@ Numerics/bool params and returns, and string **params**, are unchanged and remai
 ## Tests
 
 - Runner: `pytest` via `pixi run test` (`asyncio_mode = "auto"`, `pytest-asyncio`).
-- `conftest.py` compiles the fixture `.wat` files to `.wasm` for the tests.
-- `test_loader.py` covers: raw load, `version` global pinning (ok + mismatch), WIT export
-  proxy, **bool** ABI, **string** param + return ABI (SPEC 3.0.0), host import callbacks
-  (raw + WIT), `create_singleton` identity, and `InstancePool` run / acquire-release.
+- **Fixtures = the stamped reference set (workspace letter H7, 2026-10-26).** `tests/fixtures/`
+  holds exactly universalWasmLoader-js's 12 fixtures + `fixtures.json`, copied byte for byte from
+  -js `36aa661` (on its `origin/main`); stamp = wasmtk `4a5c3cf668d`
+  (`v2.0.3-64-g4a5c3cf`, `synapticforge1/wasmtk`). **COPY the stamp, never regenerate it**
+  (`git describe` output depends on the clone — loader-dart's finding). To update: re-copy every
+  `*.wasm`, `*.wit`, `*.wat` and `fixtures.json` from -js `tests/`; never edit one by hand.
+  `test_fixtures.py` fails on a missing file, changed bytes, or an unlisted `.wasm/.wit/.wat`
+  (inverted 2026-10-26: a flipped byte, CRLF in a `.wit`, a deleted `.wit`, a stray `.wat` — each
+  caught for its own reason; the unmodified copy clean). `.gitattributes` (`* text=auto eol=lf`,
+  `*.wasm binary`) keeps the text fixtures' bytes = the stamp on every clone.
+- `test_loader.py`: the reference-set tests assert what -js `tests/loader.test.js` asserts on the
+  same modules (math, booleans, strings, imports via WIT, SPEC §10 `init_check` / `wasi_io_50`,
+  `create_singleton`, `InstancePool` incl. concurrent); **Python-only** sections add the raw path
+  (`math_50` / `imports_50` staged without their `.wit`; raw callbacks by the module's own import
+  names `env_mul` / `env_add`) and `@N` version pinning (ok, mismatch, no `version` global) on
+  `tests/py_fixtures/versioned.wat` — the reference set has no `version` global.
+  Inverted 2026-10-26: deleting `booleans_50.wit` failed exactly the stamp test and the five bool
+  tests (`assert 1 is True`: the raw path returns the i32).
 - `test_wit_parser.py` covers the WIT parser.
-- **String fixture/test now exists:** `tests/fixtures/strings_50.wasm` + `strings_50.wit`
-  (prebuilt by wasmtk; staged into a temp dir by the `strings_wasm_with_wit` conftest
-  fixture via `_stage_prebuilt`, so the sibling-`.wit` is found). `test_loader.py` asserts
-  `greet("World") == "Hello, World!"`, `shout("hi") == "hihi"`, `strLen("hello") == 5`. These
-  three string conformance tests **pass**.
-- **Pre-existing harness caveat (unrelated to SPEC 3.0.0):** the `.wat`-based fixtures
-  (math / bool_mod / imports_mod) are compiled in `conftest._compile_wat` via
-  `wasmtime.Module(...).serialize()` (a cwasm blob) and reloaded by `_loader.wasm_import`
-  through `Module(engine, bytes)`; with recent wasmtime (35/45) that path misroutes the
-  cwasm bytes to `wat2wasm` and fails with "input was not valid utf-8". This is independent
-  of the ABI change (it reproduces on a clean checkout) and only affects the `.wat` fixtures
-  — the prebuilt-`.wasm` string tests are unaffected. Fixing it (use real `.wasm` bytes or
-  `Module.deserialize`, or pin the pixi-resolved wasmtime) is a separate harness task.
+- **Baseline 2026-10-26: 34 passed, 0 failed** (`pixi run test`). The old harness bug (drift L8:
+  `conftest` compiled `.wat` with `Module.serialize()`, which yields wasmtime's precompiled
+  artifact, not a `.wasm`, so 13 tests failed "input was not valid utf-8") is gone: the one
+  remaining `.wat` is compiled with `wasmtime.wat2wasm`.
 
 ## Build / release flow (REWORKED 2026-06-19 — parity with `-c`/`-zig`)
 
