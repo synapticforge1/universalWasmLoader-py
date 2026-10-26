@@ -109,8 +109,8 @@ def main(argv: list[str]) -> None:
     # --- Auth gate: need a PyPI token (env or ~/.pypirc) ------------------------
     if not os.environ.get("TWINE_PASSWORD") and not (Path.home() / ".pypirc").is_file():
         guard("no PyPI credentials found. Set a token and re-run:\n"
-              "         TWINE_USERNAME=__token__\n"
-              "         TWINE_PASSWORD=pypi-XXXXXXXX   # your project-scoped PyPI token\n"
+              "         export TWINE_USERNAME=__token__\n"
+              "         export TWINE_PASSWORD=pypi-XXXXXXXX   # your project-scoped PyPI token\n"
               "       (or add a [pypi] entry to ~/.pypirc).")
     # Default the username to __token__ when a password/token is supplied without one.
     if os.environ.get("TWINE_PASSWORD") and not os.environ.get("TWINE_USERNAME"):
