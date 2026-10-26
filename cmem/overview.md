@@ -203,6 +203,14 @@ Numerics/bool params and returns, and string **params**, are unchanged and remai
 
 - Dev tooling: `pixi run lint` (ruff), `pixi run fmt` (ruff format), `pixi run typecheck`
   (mypy strict), `pixi run test` (pytest).
+- **The gate: `pixi run gate`** = lint → typecheck → test (added 2026-10-26; a test task alone is
+  not a gate). `publish.yml` runs the same three commands in the same order, each able to fail the
+  job before the build. Inverted 2026-10-26: an unsorted import failed it at lint; a planted
+  `tuple[int, str]` return failed it at mypy (lint passing). The four pre-existing `src/` findings
+  were fixed with it (two UP035 `collections.abc.Callable`, one unused `type: ignore`, and
+  `_loader.py`'s nameless import — `ImportType.name` is `Optional` for the module-linking proposal —
+  now a `RuntimeError` instead of `define_func(…, None, …)`). ⚠️ CI installs ruff / mypy / pytest
+  from pip UNPINNED, local runs use `pixi.lock`: a newer ruff could flag what passes locally.
 - Build: hatchling wheel + sdist via `pixi run python -m build`. The packaging tools (`build`,
   `twine`) live in a **`publish` pixi feature** (`pixi.toml`), included in the default environment —
   run `pixi install` once to materialize them into the env + `pixi.lock`. `pixi.lock` is committed
@@ -262,9 +270,10 @@ flags/guards/idempotency). These replace the old `scripts/bump.py` + tag-only `s
   Every step is a plain `run:` step — including the OIDC exchange — which is safe under either
   policy. Do not reintroduce `uses:`.
 - Steps: checkout via `git clone --depth=1 --branch <input ref> <token-auth url> .`; `pip install
-  --upgrade build "twine>=6.1.0" "packaging>=24.2"`; run `pytest` as an **advisory** gate (`|| true`)
-  because the `.wat` fixtures have the known wasmtime harness caveat above; build with `python -m
-  build`; `twine check`; then the OIDC mint + `twine upload` step above.
+  --upgrade build "twine>=6.1.0" "packaging>=24.2"`; `pip install -e ".[dev]"`; the gate — `ruff
+  check src/ tests/`, `mypy src/`, `pytest tests/ -v`, each a hard step (the advisory `|| true` was
+  removed 2026-10-26 with the harness fix); build with `python -m build`; `twine check`; then the
+  OIDC mint + `twine upload` step above.
 - **twine/packaging pin (added 2026-06-19):** hatchling ships the LICENSE via PEP 639 `License-File`
   (Metadata-Version 2.4); `twine < 6.1` / `packaging < 24.2` reject that field in `twine check`
   (`InvalidDistribution: unrecognized or malformed field 'license-file'`). The `--upgrade` + floors

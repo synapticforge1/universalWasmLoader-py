@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import wasmtime
 from wasmtime import Engine, FuncType, Linker, Module, Store, WasiConfig
@@ -119,6 +120,9 @@ async def wasm_import(
             continue
         ft: FuncType = imp.type
         imp_name = imp.name
+        if imp_name is None:
+            # Only the module-linking proposal has nameless imports; they cannot be bound by name.
+            raise RuntimeError(f"{cleaned!r}: import from {imp.module!r} has no name")
         if imp_name in import_env:
             linker.define_func(imp.module, imp_name, ft, import_env[imp_name])
         elif host_callbacks and imp_name in host_callbacks:
