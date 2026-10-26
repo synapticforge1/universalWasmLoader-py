@@ -50,4 +50,25 @@ the step from the previous tag (by semver) is checked like a bump of that level.
 **First run, 2026-10-26** (against v1.1.0): floor patch (the API surface is unchanged since v1.1.0);
 v1.1.0's tests 13 passed / 13 not on v1.1.0's src and the same on the new src — 0 regressions.
 
+## Inverted end to end, 2026-10-26 (scratch clones of `435c279`; nothing in the repo was broken)
+
+| Mutant | Command | Result |
+| --- | --- | --- |
+| control, unmodified | `bump patch --dry-run` | ALLOWED → 1.1.1 |
+| string decode reversed in `_abi.py` (surface unchanged) | `bump patch` | refused: Rule 3, `test_string_greet` + `test_string_shout` passed on v1.1.0, fail now (`strLen` only encodes: rightly still green) |
+| `create_singleton` dropped from `__all__`, NOT re-baselined | `bump patch` | refused: snapshot STALE, below the floor (major, "removed create_singleton"), no Breaking row |
+| same, re-baselined | `bump patch` | refused: below the floor, no row |
+| same | `bump major` | refused: no row (Rule 4) |
+| same + `\| _next release_ \|` row | `bump major` (real) | ALLOWED → 2.0.0; row stamped `\| v2.0.0 \|`; README in the bump commit |
+| `loader_name()` added + exported, re-baselined | `bump patch` | refused: below the floor (minor, "added loader_name") |
+| same | `bump minor` | ALLOWED → 1.2.0 |
+| removal re-baselined, tagged v1.1.1 | `compat --release` | BLOCKED: patch below the floor (major), no row |
+| removal + row, tagged v2.0.0 | `compat --release` | passes |
+| HEAD not at the manifest's tag | `compat --release` | BLOCKED: "HEAD is not tag v1.1.0" |
+
+⚠️ **Rule 3's reach today is v1.1.0's 13 passing tests** — strings, SPEC §10 and the WIT parser.
+Its math / bool / imports / pool tests are the 13 the L8 harness bug broke, so a regression there
+is invisible to Rule 3 until the next release becomes the baseline (its suite is the 34-test one).
+Until then it is caught by the gate's own test step (`pixi run gate` / CI), not by Rule 3.
+
 **Consumers (Rule 3, second half):** no known PyPI package depends on this one; nothing to run.
