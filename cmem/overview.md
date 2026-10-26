@@ -17,7 +17,8 @@ conformance tests. The JS repo is vendored as a git submodule at
   **1.0.0** uploaded 2026-06-19 via the OIDC Trusted-Publishing workflow; **1.0.1** uploaded
   2026-06-19 (README trimmed to a user-facing PyPI page + clearer usage example); **1.1.0** uploaded
   2026-10-21 (SPEC §10 loader capabilities; first release from the `synapticforge1` org). **Current /
-  latest published version: `1.1.0`.** Brought to parity with the `-c` and `-zig` ports on
+  latest published version: `1.1.0`;** `v1.1.1` tagged and pushed 2026-10-26, awaiting the PyPI
+  publish run. Brought to parity with the `-c` and `-zig` ports on
   2026-06-19. Live at <https://pypi.org/project/universal-wasm-loader/>.
 - **Home:** <https://github.com/synapticforge1/universalWasmLoader-py> — the **`synapticforge1`**
   GitHub organization (owner-controlled). Transferred from the personal account `jrmarcum`
@@ -354,6 +355,23 @@ exercisable without PyPI failing, so unproven by the run).
   workflow from the Actions tab against `v1.1.0` and approved the `pypi` environment.
 - **Verified on PyPI 2026-10-21** (JSON API): latest = `1.1.0`, wheel + sdist uploaded
   22:55 UTC; PyPI's project links now show `github.com/synapticforge1/universalWasmLoader-py`.
+### Release `1.1.1` (2026-10-26) — tagged and pushed, NOT yet on PyPI
+
+- **Contents** (merge `b09da41`, the workspace-conformance branch): the stamped -js reference
+  fixtures (H7) and the fixed `.wat` harness (L8, 34 passed); the real gate (`pixi run gate` = CI,
+  no `|| true`); a nameless import now raises `RuntimeError` instead of reaching
+  `define_func(…, None, …)`; the toolchain on pixi Python (H15); the compatibility gate (H6); README
+  Versioning + Breaking Changes. A **patch**: the API surface is unchanged since v1.1.0.
+- **Flow (owner: "lets bump and push", then "Bump + release"):** `pixi run bump patch` — the gate's
+  first real use: floor patch, v1.1.0's tests 13 / 13 on both srcs, 0 regressions → commit
+  `e92e2dd` → `pixi run release`: pixi build of sdist (21,175 B) + wheel (8,951 B), annotated tag
+  `v1.1.1` → `e92e2dd`, `main` and the tag pushed (read back with `ls-remote`); no GitHub Release
+  (`gh` installed but unauthenticated). Locally on the tag: `compat.py --release` passes,
+  `twine check` PASSED for both files.
+- **To publish:** run the `Publish` workflow from the Actions tab against `v1.1.1` and approve the
+  `pypi` environment. Its new steps (full clone + submodule, gate, `compat.py --release`) run for
+  the first time on GitHub then — UNMEASURED there until that run.
+
 - **Test baseline 2026-10-21** (`uv run --extra dev python -m pytest tests`, wasmtime from PyPI):
   **13 passed / 13 failed.** All 13 failures are the known `.wat`-fixture harness caveat ("input was
   not valid utf-8"); every string-ABI, SPEC §10 and WIT-parser test passes.
