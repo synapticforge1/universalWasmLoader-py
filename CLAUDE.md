@@ -28,8 +28,9 @@ project memory.
 - `src/universal_wasm_loader/_abi.py` — Canonical ABI bridge (bool ↔ i32, string ↔ `(ptr,len)`,
   SPEC 3.0.0 callee-allocated string returns + `cabi_post_*`).
 - `src/universal_wasm_loader/_wit_parser.py` — regex WIT companion-file parser.
-- `tests/` — pytest suite + `.wat`/`.wit` fixtures (`pixi run test`).
+- `tests/` — pytest suite; `tests/fixtures/` is the stamped -js reference set (copy, never edit).
+  The gate: `pixi run gate` (lint → typecheck → test, = CI).
 - `pyproject.toml` `[project] version` — the single source of truth for the package version.
-- `scripts/bump-version.{sh,nu}` · `release.{sh,nu}` · `publish.{sh,nu}` — the release toolchain
-  (paired Bash + Nushell forms). Bump → release (tag + push + GitHub Release) → publish (PyPI),
+- `scripts/{bump_version,release,publish}.py` (pixi's Python: `pixi run bump|release|publish`) —
+  the release toolchain. Bump (gated) → release (tag + push + GitHub Release) → publish (PyPI),
   publishing kept a deliberate, decoupled step. See [`cmem/overview.md`](cmem/overview.md).

@@ -1,7 +1,7 @@
 name: Publish
 
 # Manual-only, and TOKEN-FREE. Publishing to PyPI is a deliberate, decoupled step
-# that does NOT fire on a tag push — cut the release first (scripts/release.{sh,nu}
+# that does NOT fire on a tag push — cut the release first (`pixi run release`
 # tags v<version>, pushes, creates the GitHub Release), then run this workflow by
 # hand (Actions tab → Run workflow) against the release tag.
 #

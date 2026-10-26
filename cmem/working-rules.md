@@ -19,9 +19,9 @@ The workspace floor is `../../cmem/working-rules.md`; these are what bite in thi
 
 - **Committed scripts are pixi's Python** (`pixi run python <file>.py`), never the host `python3`
   (a Store stub on this machine). No committed shell scripts; Nushell counts as a shell.
-  **Open (H15, 2026-10-26):** `scripts/{bump-version,release,publish}.{sh,nu}` are still the six
-  shell / Nushell files; each port replaces its original only after an output diff proves them
-  equivalent (same inputs, files + stdout + exit code, one input that must fail).
+  The six `.sh` / `.nu` were ported 2026-10-26 (H15; proof in [overview.md](overview.md) § "Single
+  source of truth"). A future port replaces its original only after an output diff proves them
+  equivalent (same inputs, files + stdout + exit code, inputs that must fail).
 - No heredocs for any content. When the exit code is the measurement, do not pipe it.
 
 ## Privacy 🔒 (owner, 2026-10-22 / 2026-10-23 / 2026-10-26; workspace letters H18, H22, H28)

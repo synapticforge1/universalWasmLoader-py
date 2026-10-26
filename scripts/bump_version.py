@@ -34,7 +34,7 @@ from _common import (
 )
 
 SEMVER = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
-LOOSE_SEMVER_ARG = re.compile(r"^[0-9].*\.[0-9].*\.[0-9]")  # the .sh's `[0-9]*.[0-9]*.[0-9]*` case
+LOOSE_SEMVER_ARG = re.compile(r"^[0-9].*\.[0-9].*\.[0-9]")  # the original .sh's glob case
 FIRST_PLAIN_VERSION = re.compile(r'^(version\s*=\s*)"[0-9]+\.[0-9]+\.[0-9]+"', re.MULTILINE)
 
 

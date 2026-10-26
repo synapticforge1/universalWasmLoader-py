@@ -1,8 +1,8 @@
 [project]
 name = "universal-wasm-loader"
 # Mirrors pyproject.toml [project] version (the single source of truth that the
-# bump-version / release / publish scripts read & write). Kept in sync by
-# scripts/bump-version.{sh,nu}.
+# bump / release / publish scripts read & write). Kept in sync by
+# scripts/bump_version.py.
 version = "1.1.0"
 description = "Universal WASM loader for Python"
 channels = ["conda-forge"]
@@ -16,11 +16,11 @@ typecheck = "mypy src/ scripts/"
 # The release gate — the same three commands, in this order, as publish.yml runs before it builds.
 # A test task alone is not a gate (pytest never type-checks).
 gate = { depends-on = ["lint", "typecheck", "test"] }
-# Versioning / release toolchain lives in scripts/ as paired Bash + Nushell forms
-# (bump-version, release, publish). Run them directly, e.g.
-#   bash scripts/bump-version.sh minor   |   nu scripts/bump-version.nu minor
-#   bash scripts/release.sh              |   nu scripts/release.nu
-#   bash scripts/publish.sh --yes        |   nu scripts/publish.nu --yes
+# Versioning / release toolchain: scripts/*.py on pixi's Python (workspace tooling rule 1).
+#   pixi run bump minor   |   pixi run release   |   pixi run publish --yes
+bump = "python scripts/bump_version.py"
+release = "python scripts/release.py"
+publish = "python scripts/publish.py"
 
 [dependencies]
 python = ">=3.11,<4"
@@ -35,7 +35,7 @@ pytest-asyncio = ">=0.23.0"
 ruff = ">=0.9.0"
 mypy = ">=1.10.0"
 
-# Packaging toolchain — `scripts/release.{sh,nu}` and `scripts/publish.{sh,nu}`
+# Packaging toolchain — `scripts/release.py` and `scripts/publish.py`
 # run `pixi run python -m build` / `... -m twine ...` inside this env.
 # twine >=6.1 / packaging >=24.2: older twine rejects hatchling's PEP 639
 # `License-File` (Metadata-Version 2.4) field in `twine check`.
