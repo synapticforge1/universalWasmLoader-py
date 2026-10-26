@@ -1,0 +1,6 @@
+# LF everywhere, in the repo and in every checkout, regardless of the cloner's core.autocrlf:
+# the stamped fixtures' sha256 (tests/fixtures/fixtures.json) covers the .wit / .wat text bytes.
+* text=auto eol=lf
+
+# Binary fixtures: never touch their bytes.
+*.wasm binary

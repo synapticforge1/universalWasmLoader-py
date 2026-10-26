@@ -1,8 +1,10 @@
 > **⚠️ PORTABLE PROJECT MEMORY LIVES IN `cmem/`** — start at [`cmem/INDEX.md`](cmem/INDEX.md).
 
-> **At session start, read `../../cmem/handoffs.md` for letters addressed to this repo.** The workspace
-> session (`../../cmem/INDEX.md`) reviews across the sibling repos and reports there; nothing is ever
-> written into this repo from outside. (owner directive, 2026-09-20)
+> **At session start, read `../../cmem/workspace-correspondence.md`** (every row addressed to this
+> repo, and every row touching the work at hand), **then the letter it points to in
+> `../../cmem/handoffs.md`.** The workspace session (`../../cmem/INDEX.md`) reviews across the
+> sibling repos and reports there; nothing is ever written into this repo from outside. (owner
+> directive, 2026-09-20; ledger first since 2026-10-26)
 
 > When saving new project memory, write it into the matching `cmem/` topic file (and refresh its
 > pointer in `cmem/INDEX.md`). The **"update the project memory"** and **"look for code issues"**
@@ -26,8 +28,9 @@ project memory.
 - `src/universal_wasm_loader/_abi.py` — Canonical ABI bridge (bool ↔ i32, string ↔ `(ptr,len)`,
   SPEC 3.0.0 callee-allocated string returns + `cabi_post_*`).
 - `src/universal_wasm_loader/_wit_parser.py` — regex WIT companion-file parser.
-- `tests/` — pytest suite + `.wat`/`.wit` fixtures (`pixi run test`).
+- `tests/` — pytest suite; `tests/fixtures/` is the stamped -js reference set (copy, never edit).
+  The gate: `pixi run gate` (lint → typecheck → test, = CI).
 - `pyproject.toml` `[project] version` — the single source of truth for the package version.
-- `scripts/bump-version.{sh,nu}` · `release.{sh,nu}` · `publish.{sh,nu}` — the release toolchain
-  (paired Bash + Nushell forms). Bump → release (tag + push + GitHub Release) → publish (PyPI),
+- `scripts/{bump_version,release,publish}.py` (pixi's Python: `pixi run bump|release|publish`) —
+  the release toolchain. Bump (gated) → release (tag + push + GitHub Release) → publish (PyPI),
   publishing kept a deliberate, decoupled step. See [`cmem/overview.md`](cmem/overview.md).

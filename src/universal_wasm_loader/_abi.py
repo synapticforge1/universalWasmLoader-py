@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import wasmtime
 
@@ -20,7 +21,7 @@ def _encode_string(
     text: str,
 ) -> tuple[int, int]:
     data = text.encode("utf-8")
-    ptr: int = realloc(store, 0, 0, 1, len(data))  # type: ignore[assignment]
+    ptr: int = realloc(store, 0, 0, 1, len(data))
     memory.write(store, data, ptr)
     return ptr, len(data)
 

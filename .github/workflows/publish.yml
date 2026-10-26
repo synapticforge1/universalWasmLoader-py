@@ -1,7 +1,7 @@
 name: Publish
 
 # Manual-only, and TOKEN-FREE. Publishing to PyPI is a deliberate, decoupled step
-# that does NOT fire on a tag push — cut the release first (scripts/release.{sh,nu}
+# that does NOT fire on a tag push — cut the release first (`pixi run release`
 # tags v<version>, pushes, creates the GitHub Release), then run this workflow by
 # hand (Actions tab → Run workflow) against the release tag.
 #
@@ -45,10 +45,13 @@ jobs:
       # actions/setup-python, AND the usual pypa/gh-action-pypi-publish) caused a
       # `startup_failure` — nothing ran.
       # Every step here MUST stay a plain `run:` step. Do NOT reintroduce `uses:`.
+      # Full history + tags: the compatibility gate compares against the previous release tag.
+      # The submodule gives a pre-gate tag's SPEC.md version (scripts/compat.py spec_at).
       - name: Checkout
         run: |
-          git clone --depth=1 --branch "${{ github.event.inputs.ref }}" \
+          git clone --branch "${{ github.event.inputs.ref }}" \
             "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" .
+          git submodule update --init
 
       # ubuntu-latest ships Python 3 + pip. Install the build frontend and twine
       # via `run:` (no setup-python action).
@@ -61,16 +64,27 @@ jobs:
           # in `twine check`. --upgrade also overrides any older preinstalled twine.
           python3 -m pip install --upgrade build "twine>=6.1.0" "packaging>=24.2"
 
-      # Advisory test gate. The .wat-based fixtures have a known wasmtime-version
-      # harness caveat (cmem/overview.md "Pre-existing harness caveat"), so we do
-      # NOT hard-fail the publish on the full suite — the prebuilt-.wasm string
-      # conformance tests are the meaningful gate. `|| true` keeps a harness-only
-      # failure from blocking a release. Remove `|| true` once the .wat harness is
-      # fixed.
-      - name: Run tests (advisory gate)
-        run: |
-          python3 -m pip install -e ".[dev]"
-          python3 -m pytest tests/ -v || true
+      # The release gate: the same three commands, in the same order, as the local
+      # `pixi run gate` (lint, typecheck, test). Any failure stops the publish
+      # before anything is built. (Advisory `|| true` removed 2026-10-26: the .wat
+      # harness bug it excused is fixed, drift L8.)
+      - name: Install the package + dev tools
+        run: python3 -m pip install -e ".[dev]"
+
+      - name: Lint (ruff)
+        run: python3 -m ruff check src/ tests/ scripts/
+
+      - name: Type check (mypy strict)
+        run: python3 -m mypy src/ scripts/
+
+      - name: Tests (pytest)
+        run: python3 -m pytest tests/ -v
+
+      # Repeats the bump script's check on the tagged commit: HEAD = tag v<manifest version>,
+      # the step from the previous tag is at or above the API-surface floor, the snapshot is
+      # fresh, and the previous tag's tests do not regress. Exit 1 blocks the publish.
+      - name: Compatibility gate (on the tag)
+        run: python3 scripts/compat.py --release
 
       - name: Build sdist + wheel
         run: |

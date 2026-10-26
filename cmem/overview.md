@@ -72,11 +72,13 @@ src/universal_wasm_loader/
   _wit_parser.py   # regex WIT companion-file parser (parse_wit)
   _abi.py          # Canonical ABI bridge (import env + export proxy, string/bool marshalling)
 tests/
-  conftest.py      # pytest fixtures: compile fixture .wat -> .wasm for tests
+  conftest.py      # pytest fixtures: paths into fixtures/, raw staging, versioned.wat -> .wasm
   test_loader.py   # loader + ABI integration tests
+  test_fixtures.py # fixtures/ = the stamped reference set (sha256 vs fixtures.json)
   test_wit_parser.py
-  fixtures/        # math.{wat,wit}, bool_mod.{wat,wit}, imports_mod.{wat,wit},
-                   # strings_50.{wasm,wit}, init_check.wasm, wasi_io_50.{wasm,wit} (§10)
+  fixtures/        # the -js reference set, copied unmodified (H7): {math,booleans,strings,
+                   # imports,wasi_io}_50.{wasm,wit}, init_check.{wat,wasm}, fixtures.json
+  py_fixtures/     # Python-only: versioned.wat (`version` global, for @N pinning)
 upstream/universalwasmloader-js/   # git submodule (reference impl + SPEC.md)
 ```
 
@@ -173,29 +175,42 @@ Numerics/bool params and returns, and string **params**, are unchanged and remai
 ## Tests
 
 - Runner: `pytest` via `pixi run test` (`asyncio_mode = "auto"`, `pytest-asyncio`).
-- `conftest.py` compiles the fixture `.wat` files to `.wasm` for the tests.
-- `test_loader.py` covers: raw load, `version` global pinning (ok + mismatch), WIT export
-  proxy, **bool** ABI, **string** param + return ABI (SPEC 3.0.0), host import callbacks
-  (raw + WIT), `create_singleton` identity, and `InstancePool` run / acquire-release.
+- **Fixtures = the stamped reference set (workspace letter H7, 2026-10-26).** `tests/fixtures/`
+  holds exactly universalWasmLoader-js's 12 fixtures + `fixtures.json`, copied byte for byte from
+  -js `36aa661` (on its `origin/main`); stamp = wasmtk `4a5c3cf668d`
+  (`v2.0.3-64-g4a5c3cf`, `synapticforge1/wasmtk`). **COPY the stamp, never regenerate it**
+  (`git describe` output depends on the clone — loader-dart's finding). To update: re-copy every
+  `*.wasm`, `*.wit`, `*.wat` and `fixtures.json` from -js `tests/`; never edit one by hand.
+  `test_fixtures.py` fails on a missing file, changed bytes, or an unlisted `.wasm/.wit/.wat`
+  (inverted 2026-10-26: a flipped byte, CRLF in a `.wit`, a deleted `.wit`, a stray `.wat` — each
+  caught for its own reason; the unmodified copy clean). `.gitattributes` (`* text=auto eol=lf`,
+  `*.wasm binary`) keeps the text fixtures' bytes = the stamp on every clone.
+- `test_loader.py`: the reference-set tests assert what -js `tests/loader.test.js` asserts on the
+  same modules (math, booleans, strings, imports via WIT, SPEC §10 `init_check` / `wasi_io_50`,
+  `create_singleton`, `InstancePool` incl. concurrent); **Python-only** sections add the raw path
+  (`math_50` / `imports_50` staged without their `.wit`; raw callbacks by the module's own import
+  names `env_mul` / `env_add`) and `@N` version pinning (ok, mismatch, no `version` global) on
+  `tests/py_fixtures/versioned.wat` — the reference set has no `version` global.
+  Inverted 2026-10-26: deleting `booleans_50.wit` failed exactly the stamp test and the five bool
+  tests (`assert 1 is True`: the raw path returns the i32).
 - `test_wit_parser.py` covers the WIT parser.
-- **String fixture/test now exists:** `tests/fixtures/strings_50.wasm` + `strings_50.wit`
-  (prebuilt by wasmtk; staged into a temp dir by the `strings_wasm_with_wit` conftest
-  fixture via `_stage_prebuilt`, so the sibling-`.wit` is found). `test_loader.py` asserts
-  `greet("World") == "Hello, World!"`, `shout("hi") == "hihi"`, `strLen("hello") == 5`. These
-  three string conformance tests **pass**.
-- **Pre-existing harness caveat (unrelated to SPEC 3.0.0):** the `.wat`-based fixtures
-  (math / bool_mod / imports_mod) are compiled in `conftest._compile_wat` via
-  `wasmtime.Module(...).serialize()` (a cwasm blob) and reloaded by `_loader.wasm_import`
-  through `Module(engine, bytes)`; with recent wasmtime (35/45) that path misroutes the
-  cwasm bytes to `wat2wasm` and fails with "input was not valid utf-8". This is independent
-  of the ABI change (it reproduces on a clean checkout) and only affects the `.wat` fixtures
-  — the prebuilt-`.wasm` string tests are unaffected. Fixing it (use real `.wasm` bytes or
-  `Module.deserialize`, or pin the pixi-resolved wasmtime) is a separate harness task.
+- **Baseline 2026-10-26: 34 passed, 0 failed** (`pixi run test`). The old harness bug (drift L8:
+  `conftest` compiled `.wat` with `Module.serialize()`, which yields wasmtime's precompiled
+  artifact, not a `.wasm`, so 13 tests failed "input was not valid utf-8") is gone: the one
+  remaining `.wat` is compiled with `wasmtime.wat2wasm`.
 
 ## Build / release flow (REWORKED 2026-06-19 — parity with `-c`/`-zig`)
 
 - Dev tooling: `pixi run lint` (ruff), `pixi run fmt` (ruff format), `pixi run typecheck`
   (mypy strict), `pixi run test` (pytest).
+- **The gate: `pixi run gate`** = lint → typecheck → test (added 2026-10-26; a test task alone is
+  not a gate). `publish.yml` runs the same three commands in the same order, each able to fail the
+  job before the build. Inverted 2026-10-26: an unsorted import failed it at lint; a planted
+  `tuple[int, str]` return failed it at mypy (lint passing). The four pre-existing `src/` findings
+  were fixed with it (two UP035 `collections.abc.Callable`, one unused `type: ignore`, and
+  `_loader.py`'s nameless import — `ImportType.name` is `Optional` for the module-linking proposal —
+  now a `RuntimeError` instead of `define_func(…, None, …)`). ⚠️ CI installs ruff / mypy / pytest
+  from pip UNPINNED, local runs use `pixi.lock`: a newer ruff could flag what passes locally.
 - Build: hatchling wheel + sdist via `pixi run python -m build`. The packaging tools (`build`,
   `twine`) live in a **`publish` pixi feature** (`pixi.toml`), included in the default environment —
   run `pixi install` once to materialize them into the env + `pixi.lock`. `pixi.lock` is committed
@@ -207,22 +222,36 @@ Numerics/bool params and returns, and string **params**, are unchanged and remai
 ### Single source of truth + the three-script toolchain
 
 **`pyproject.toml` `[project] version` is the single source of truth** for the package version;
-`pixi.toml` mirrors it (kept in sync by `bump-version`). Three scripts key off it, each shipped in
-**two equivalent forms** — a Bash `.sh` and a cross-platform **Nushell `.nu`** (needs `nu` ≥0.113;
-runs on Windows/macOS/Linux without Git Bash). The `.nu` is a faithful port of the `.sh` (identical
-flags/guards/idempotency). These replace the old `scripts/bump.py` + tag-only `scripts/release.sh`
-(removed 2026-06-19). Tagging/releasing and PyPI publishing are **deliberately decoupled**.
+`pixi.toml` mirrors it (kept in sync by `bump_version.py`). Three scripts key off it, all **pixi
+Python** (`scripts/*.py` + shared `_common.py`; `pixi run bump|release|publish …`, or
+`pixi run python scripts/<name>.py …`). Tagging/releasing and PyPI publishing are **deliberately
+decoupled**.
 
-1. **`scripts/bump-version.{sh,nu}` `<major|minor|patch|X.Y.Z>`** — rewrites `[project] version` in
+**Ported from Bash + Nushell 2026-10-26 (workspace letter H15).** The six `.sh` / `.nu` files were
+replaced only after an equivalence run (one-time, not committed): every case run on the `.sh`
+original and the `.py` port in two identical scratch clones (pinned commit dates, `origin` = a
+scratch bare repo, no credentials), diffing stdout, stderr, exit code, manifests, HEAD, tags and the
+remote's refs — **24 cases** (12 bump incl. dirty tree / existing tag / non-semver / not-greater,
+7 release incl. two REAL tag + push runs, 5 publish incl. PyPI's "already published" and the
+credentials guard): **23 identical, 1 different as declared** (`--help` loses the `.sh`'s stray
+`set -euo pipefail` line). The run caught one real port slip (`export ` dropped from the
+credentials hint, fixed `d465fd6`). The `.nu` forms could not be run here (`nu` absent); they were
+ports of the `.sh`. **Declared differences:** messages name `scripts/*.py`; `--help` prints the
+docstring; output is UTF-8 + LF on every platform; and **`publish` proceeds only on an HTTP 404**
+from PyPI's JSON API — the `.sh`'s `curl -f` read ANY failure (timeout, 5xx) as "not published yet"
+and went on toward the irreversible upload (the masked-HTTP-error class loader-js flagged; not
+exercisable without PyPI failing, so unproven by the run).
+
+1. **`scripts/bump_version.py` `<major|minor|patch|X.Y.Z>`** — rewrites `[project] version` in
    `pyproject.toml` (and the `pixi.toml` mirror) and commits the isolated bump. Guards: clean tree,
    strictly-greater target, no pre-existing tag, valid semver. `--dry-run` / `--no-commit`.
-2. **`scripts/release.{sh,nu}`** — reads the version, verifies a clean tree + a fresh
+2. **`scripts/release.py`** — reads the version, verifies a clean tree + a fresh
    `pixi run python -m build`, tags `v<version>`, pushes branch + tag to `origin`, and creates the matching
    **GitHub Release** via `gh` (skippable). Idempotent (reuses a tag only if it points at HEAD;
    skips an existing Release; degrades gracefully if `gh` is missing/unauthenticated — the tag is
    still pushed). Does **NOT** publish to PyPI. `--dry-run` / `--no-release` / `--no-build` /
    `--remote`.
-3. **`scripts/publish.{sh,nu}`** — the separate, deliberate PyPI step.
+3. **`scripts/publish.py`** — the separate, deliberate PyPI step.
    **Exact publish command:** `pixi run python -m build` then `pixi run python -m twine check dist/*`
    then `pixi run python -m twine upload dist/*` — run inside the pixi env (this is a pixi project).
    Toolchain is auto-detected (pixi when a `pixi.toml` + the `pixi` CLI are present); force with
@@ -255,9 +284,10 @@ flags/guards/idempotency). These replace the old `scripts/bump.py` + tag-only `s
   Every step is a plain `run:` step — including the OIDC exchange — which is safe under either
   policy. Do not reintroduce `uses:`.
 - Steps: checkout via `git clone --depth=1 --branch <input ref> <token-auth url> .`; `pip install
-  --upgrade build "twine>=6.1.0" "packaging>=24.2"`; run `pytest` as an **advisory** gate (`|| true`)
-  because the `.wat` fixtures have the known wasmtime harness caveat above; build with `python -m
-  build`; `twine check`; then the OIDC mint + `twine upload` step above.
+  --upgrade build "twine>=6.1.0" "packaging>=24.2"`; `pip install -e ".[dev]"`; the gate — `ruff
+  check src/ tests/`, `mypy src/`, `pytest tests/ -v`, each a hard step (the advisory `|| true` was
+  removed 2026-10-26 with the harness fix); build with `python -m build`; `twine check`; then the
+  OIDC mint + `twine upload` step above.
 - **twine/packaging pin (added 2026-06-19):** hatchling ships the LICENSE via PEP 639 `License-File`
   (Metadata-Version 2.4); `twine < 6.1` / `packaging < 24.2` reject that field in `twine check`
   (`InvalidDistribution: unrecognized or malformed field 'license-file'`). The `--upgrade` + floors

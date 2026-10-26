@@ -7,15 +7,21 @@ The workspace floor is `../../cmem/working-rules.md`; these are what bite in thi
 - **Nothing is pushed, tagged or published unless the owner says so.** A published PyPI version is
   immutable ([overview.md](overview.md) § release toolchain).
 - Commit messages go through a file: `git commit -F <file>`. Never a heredoc.
+- **Branching = the workspace floor** (this repo had no rule of its own; adopted 2026-10-26):
+  branch → `pixi run gate` → `git merge --no-ff` into `main`. Decide commit granularity before
+  editing.
+- **Never `git checkout <file>` to drop a probe** — copy the file aside and copy it back (broken
+  once here on 2026-10-26 restoring a deleted fixture; nothing was lost, but that was luck).
+- **Never inline code in a command** (`python -c`, `bun -e`): write a scratch file and run it.
 - Nothing is written into a sibling repo from here (workspace ★ 8.1). Read `-js` freely.
 
 ## Tooling hard rules (workspace, 🔒 owner 2026-10-22, letter H15)
 
 - **Committed scripts are pixi's Python** (`pixi run python <file>.py`), never the host `python3`
   (a Store stub on this machine). No committed shell scripts; Nushell counts as a shell.
-  **Open (H15, 2026-10-26):** `scripts/{bump-version,release,publish}.{sh,nu}` are still the six
-  shell / Nushell files; each port replaces its original only after an output diff proves them
-  equivalent (same inputs, files + stdout + exit code, one input that must fail).
+  The six `.sh` / `.nu` were ported 2026-10-26 (H15; proof in [overview.md](overview.md) § "Single
+  source of truth"). A future port replaces its original only after an output diff proves them
+  equivalent (same inputs, files + stdout + exit code, inputs that must fail).
 - No heredocs for any content. When the exit code is the measurement, do not pipe it.
 
 ## Privacy 🔒 (owner, 2026-10-22 / 2026-10-23 / 2026-10-26; workspace letters H18, H22, H28)

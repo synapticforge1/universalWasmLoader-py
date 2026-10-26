@@ -6,6 +6,7 @@ instantiates WebAssembly modules and, when a companion `.wit` file is present, a
 Canonical ABI so you call WIT exports with idiomatic Python values (`int`/`float`, `bool`,
 `str`) instead of raw i32/pointer pairs.
 
+- **Conforms to:** the cross-language `SPEC.md` **v3.0.0**
 - **PyPI package:** `universal-wasm-loader`
 - **WASM runtime:** [`wasmtime`](https://pypi.org/project/wasmtime/) ≥ 26.0.0
 - **License:** MIT
@@ -56,3 +57,16 @@ print(exports["strLen"]("hello")) # 5                 (WIT export `str-len`)
 concurrent workloads) are also exported. See the
 [project on GitHub](https://github.com/synapticforge1/universalWasmLoader-py) for the
 full API, examples, and source.
+
+## Versioning
+
+This package follows [Semantic Versioning 2.0.0](https://semver.org/). Every bump is gated: the
+release tooling compares the public API (`api-surface.json`: every exported symbol with its
+signature, plus the `SPEC.md` version) with the previous release, and refuses a bump lower than the
+change requires. It also runs the previous release's tests against the new code.
+
+### ⚠️ Breaking Changes
+
+| Version | What changed | How to migrate |
+| --- | --- | --- |
+| — | No breaking change since 1.0.0 (the compatibility gate began 2026-10-26). | — |
