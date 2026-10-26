@@ -16,13 +16,17 @@ Usage: pixi run python scripts/bump_version.py <major|minor|patch|X.Y.Z> [option
 
 Refuses to run on a dirty tree (so the bump lands as an isolated commit) and
 rejects a target that isn't strictly greater than the current version or whose
-tag already exists.
+tag already exists. Then runs the compatibility gate (scripts/compat.py) against
+the last release tag and refuses a bump below its floor, a stale api-surface.json,
+a patch/minor whose previous-tag tests regress, or a major with no Breaking
+Changes row.
 """
 from __future__ import annotations
 
 import re
 import sys
 
+import compat
 from _common import (
     ROOT,
     fail,
@@ -97,6 +101,15 @@ def main(argv: list[str]) -> None:
         print_dirty_tree()
         sys.exit(1)
 
+    # --- The compatibility gate (scripts/compat.py; never skipped) --------------
+    level = compat.level_between(cur, new)
+    previous = compat.tags()
+    problems = compat.check(level, previous[-1] if previous else None)
+    if problems:
+        for p in problems:
+            print(f"error: refused: {p}", file=sys.stderr)
+        sys.exit(1)
+
     # --- Apply ------------------------------------------------------------------
     # Replace only the first `version = "..."` line in pyproject.toml (the [project]
     # field), and pixi.toml's mirror, preserving formatting and line endings.
@@ -109,10 +122,23 @@ def main(argv: list[str]) -> None:
                 )
     print(f'+ set version = "{new}" in pyproject.toml (and pixi.toml mirror)', flush=True)
 
+    # Rule 4: a major stamps its version into README's `_next release_` Breaking Changes row.
+    readme = ROOT / "README.md"
+    stamp_row = level == "major" and compat.has_next_release_row()
+    if stamp_row:
+        if not dry_run:
+            text = readme.read_bytes().decode("utf-8")
+            readme.write_bytes(
+                text.replace(compat.NEXT_RELEASE_ROW, f"| v{new} |", 1).encode("utf-8")
+            )
+        print(f"+ stamp v{new} into README's Breaking Changes row", flush=True)
+
     if do_commit:
         run("git", "add", "pyproject.toml")
         if pixi.is_file():
             run("git", "add", "pixi.toml")
+        if stamp_row:
+            run("git", "add", "README.md")
         run("git", "commit", "-m", f"Bump version: v{cur} -> v{new}")
 
     print(f"Done: {new}")

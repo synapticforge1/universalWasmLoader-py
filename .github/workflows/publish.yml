@@ -45,10 +45,13 @@ jobs:
       # actions/setup-python, AND the usual pypa/gh-action-pypi-publish) caused a
       # `startup_failure` — nothing ran.
       # Every step here MUST stay a plain `run:` step. Do NOT reintroduce `uses:`.
+      # Full history + tags: the compatibility gate compares against the previous release tag.
+      # The submodule gives a pre-gate tag's SPEC.md version (scripts/compat.py spec_at).
       - name: Checkout
         run: |
-          git clone --depth=1 --branch "${{ github.event.inputs.ref }}" \
+          git clone --branch "${{ github.event.inputs.ref }}" \
             "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" .
+          git submodule update --init
 
       # ubuntu-latest ships Python 3 + pip. Install the build frontend and twine
       # via `run:` (no setup-python action).
@@ -76,6 +79,12 @@ jobs:
 
       - name: Tests (pytest)
         run: python3 -m pytest tests/ -v
+
+      # Repeats the bump script's check on the tagged commit: HEAD = tag v<manifest version>,
+      # the step from the previous tag is at or above the API-surface floor, the snapshot is
+      # fresh, and the previous tag's tests do not regress. Exit 1 blocks the publish.
+      - name: Compatibility gate (on the tag)
+        run: python3 scripts/compat.py --release
 
       - name: Build sdist + wheel
         run: |

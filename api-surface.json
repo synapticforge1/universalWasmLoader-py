@@ -1,0 +1,12 @@
+{
+  "spec": "3.0.0",
+  "symbols": {
+    "InstancePool": "class",
+    "InstancePool.__init__": "method (self, wasm_path: 'str | Path', host_callbacks: 'dict[str, Callable[..., Any]] | None' = None, size: 'int' = 2) -> 'None'",
+    "InstancePool.acquire": "async method (self) -> 'dict[str, Any]'",
+    "InstancePool.release": "async method (self, instance: 'dict[str, Any]') -> 'None'",
+    "InstancePool.run": "async method (self, fn: 'Callable[[dict[str, Any]], Any]') -> 'Any'",
+    "create_singleton": "function (wasm_path: 'str | Path', host_callbacks: 'dict[str, Callable[..., Any]] | None' = None) -> 'Callable[[], Any]'",
+    "wasm_import": "async function (wasm_path: 'str | Path', host_callbacks: 'dict[str, Callable[..., Any]] | None' = None) -> 'dict[str, Any]'"
+  }
+}
