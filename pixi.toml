@@ -10,9 +10,9 @@ platforms = ["win-64", "linux-64", "osx-64", "osx-arm64"]
 
 [tasks]
 test = "pytest tests/ -v"
-lint = "ruff check src/ tests/"
+lint = "ruff check src/ tests/ scripts/"
 fmt = "ruff format src/ tests/"
-typecheck = "mypy src/"
+typecheck = "mypy src/ scripts/"
 # The release gate — the same three commands, in this order, as publish.yml runs before it builds.
 # A test task alone is not a gate (pytest never type-checks).
 gate = { depends-on = ["lint", "typecheck", "test"] }
