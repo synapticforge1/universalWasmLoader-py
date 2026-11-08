@@ -22,8 +22,8 @@ conformance tests. The JS repo is vendored as a git submodule at
   they were removed from PyPI. **Owner, 2026-11-08: "yes 1.1.1 is the only one on pypi"** —
   intended. Those three version numbers stay reserved on PyPI forever. Brought to parity with the `-c` and `-zig` ports on
   2026-06-19. Live at <https://pypi.org/project/universal-wasm-loader/>.
-- **2.0.0 (SPEC 4.0.0) tagged and pushed 2026-11-08, NOT yet on PyPI** — § "Release 2.0.0" below.
-  The PyPI publish is the `Publish` workflow, run by hand from the Actions tab.
+- **2.0.0 (SPEC 4.0.0) PUBLISHED 2026-11-08** (2 files, 19:52:37–38 UTC; PyPI latest = 2.0.0,
+  releases 1.1.1 + 2.0.0, read back) — § "Release 2.0.0" below.
 - **Home:** <https://github.com/synapticforge1/universalWasmLoader-py> — the **`synapticforge1`**
   GitHub organization (owner-controlled). Transferred from the personal account `jrmarcum`
   (confirmed via the GitHub API 2026-10-21); see "Repository transfer" below. The upstream JS
@@ -307,7 +307,29 @@ exercisable without PyPI failing, so unproven by the run).
    that version already exists, reports success and uploads nothing. Prompts before the irreversible
    upload (`--yes` to skip). `--dry-run` / `--allow-dirty` / `--skip-tag-check` / `--remote`.
 
-### Publish workflow — `.github/workflows/publish.yml` (MANUAL, TOKEN-FREE, TWO JOBS since 2.0.0)
+### CI + publish (since 2026-11-08, `4548c34`; owner: "CI on push/PR + publish on tag")
+
+- **`.github/workflows/ci.yml`** — every push to `main` and every PR: `contents: read`, a
+  tokenless fetch of exactly `$GITHUB_REF` at `$GITHUB_SHA`, no `uses:`; pixi 0.84.1 by URL +
+  sha256 (`c81a1659…454a`: the release's `.sha256` = GitHub's asset digest = a local hash),
+  `pixi install --locked`, lint / typecheck / test, `compat.py --snapshot`. The first CI repo-wide
+  gate on GitHub outside a publish. **UNMEASURED until pushed.**
+- **`publish.yml` now runs on a `v*` tag push** (+ `workflow_dispatch` for re-runs), so `pixi run
+  release` starts it; the upload still waits for the `pypi` environment's approval. Per-tag
+  `concurrency`, queued, never cancelled. `checks` installs `pixi.lock` (no unpinned pip) and
+  builds `--no-isolation` with the locked hatchling 1.33.0 (added to the `publish` feature).
+  `publish` fetches `scripts/pypi_files.py` from the repo at `github.sha` and uploads ONLY the
+  files PyPI still needs; if PyPI has all of them it mints no token.
+- **Per-file idempotency, both paths (`eff40fa`):** `scripts/pypi_files.py` (stdlib) — 404 = no
+  files yet, any other answer an error; files already there skipped by NAME (hash reported, not
+  required: the build is not reproducible). `publish.py` builds first, then plans; until then it
+  read ANY file of the version as "already on PyPI", so a half-published version reported success.
+  Measured against the real PyPI: complete → nothing; absent → both; partial → the missing one;
+  foreign file → exit 1.
+- ⚠️ A force-moved `v*` tag RE-RUNS the publish (workspace H19 note); with the planner such a run
+  finds the files and uploads nothing.
+
+### Publish workflow — `.github/workflows/publish.yml` (TOKEN-FREE, TWO JOBS since 2.0.0)
 
 **Current shape (`ae51e95`, 2026-11-08, workspace C30; owner: "yes C30 applies here").** Top-level
 `permissions: {}`. **`checks`** (`contents: read`, no `id-token`, TOKENLESS clone — the repo is
@@ -320,8 +342,8 @@ only `twine==7.0.0` (`--only-binary :all:`, own venv) and does the OIDC mint + u
 (v8.0.2), full commit hashes verified as commits via the GitHub API — the old "never `uses:`" rule
 came from the previous owner's policy; the org accepts hash-pinned actions (loader-dotnet run
 42441589123). Checked locally: YAML parses to the intended graph (Bun.YAML); the tag step against
-GitHub for v1.1.1 — right commit ok, wrong commit / absent tag exit 1. **UNMEASURED on GitHub until
-its first run (2.0.0).** The text below is the history of the single-job form.
+GitHub for v1.1.1 — right commit ok, wrong commit / absent tag exit 1. **Measured on GitHub: run
+42517168769 (2.0.0) green in both jobs.** The text below is the history of the single-job form.
 
 - Trigger: **`workflow_dispatch`** with a `ref` input (the release tag). Changed 2026-06-19 from
   `push: tags: v*` so a `release` tag push no longer auto-publishes — publishing stays a single
@@ -427,7 +449,7 @@ its first run (2.0.0).** The text below is the history of the single-job form.
 - **Published:** PyPI serves 1.1.1 (2 files, 2026-10-26 20:23 UTC; the workspace measured it first
   and noted this memory lagged). The run itself (id, step results) was not looked up from here.
 
-### Release `2.0.0` (2026-11-08) — tagged and pushed; NOT yet on PyPI
+### Release `2.0.0` (2026-11-08) — tagged, pushed, PUBLISHED
 
 - **Owner:** "yes C30 applies here. yes 1.1.1 is the only one on pypi. yes change the instance
   pool. yes release 2.0.0". **Contents:** SPEC 4.0.0 (`568f7f3` + `bb7feb6`), `InstancePool`
@@ -440,8 +462,13 @@ its first run (2.0.0).** The text below is the history of the single-job form.
   CI would have stopped the publish. Fixed in `238afa0`; **on the owner's word ("Move tag to the
   fix") `v2.0.0` was MOVED from `13f125a` to the commit carrying this record**, force-pushed with
   a lease. Nothing had consumed the old tag: PyPI latest 1.1.1, no GitHub Release, no run.
-- **To publish:** Actions tab → `Publish` → Run workflow, "Use workflow from: Tag v2.0.0", `ref`
-  = `v2.0.0`; approve the `pypi` environment. First run of the two-job workflow: UNMEASURED.
+- **Published by the owner's run 42517168769** (workflow_dispatch from tag `v2.0.0`, `21e680a`;
+  the FIRST run of the two-job workflow): `checks` and `publish` green in every step (read through
+  the public Actions API). PyPI: `universal_wasm_loader-2.0.0-py3-none-any.whl` sha256
+  `75f53723…5fa1`, `universal_wasm_loader-2.0.0.tar.gz` sha256 `81a03f99…cdd6`. A local build of
+  the same commit gave other hashes (`e3717971…`, `ab6a1746…`): **the build is not
+  byte-reproducible across machines**, which shaped `scripts/pypi_files.py` (skip by name, report
+  the hash).
 
 - **Test baseline 2026-10-21** (`uv run --extra dev python -m pytest tests`, wasmtime from PyPI):
   **13 passed / 13 failed.** All 13 failures are the known `.wat`-fixture harness caveat ("input was

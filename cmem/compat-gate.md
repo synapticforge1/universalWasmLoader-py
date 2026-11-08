@@ -43,7 +43,11 @@ tag itself are reported, not blocking. Why per test: v1.1.0's own suite is 13 / 
 refuse every bump forever. Green also needs at least one pass on the new src. The worktree is
 always removed.
 
-**CI:** `publish.yml` clones with full history (it was `--depth=1`) and the submodule, runs the
+**CI on every push / PR (`ci.yml`, 2026-11-08):** `compat.py --snapshot` — Rule 1 only (the
+committed snapshot = the code; inverted: a stale copy → exit 1). The floor and Rule 3 are not asked
+there: they would fail all breaking work before its bump.
+
+**CI on the tag:** `publish.yml` clones with full history (it was `--depth=1`) and the submodule, runs the
 lint → typecheck → test gate, then `compat.py --release`: HEAD must be tag `v<manifest version>`;
 the step from the previous tag (by semver) is checked like a bump of that level.
 
