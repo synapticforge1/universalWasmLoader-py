@@ -53,6 +53,20 @@ print(greet("World"))             # "Hello, World!"   (str in, str out)
 print(exports["strLen"]("hello")) # 5                 (WIT export `str-len`)
 ```
 
+Loads and calls fail loudly (SPEC 4.0.0); nothing is coerced or defaulted:
+
+- Only an **absent** `.wit` (no file, or a path that does not end in `.wasm`) gives raw exports.
+  An unreadable or non-UTF-8 `.wit` raises `OSError` / `ValueError`, and so does a `.wit` that
+  does not parse (an unsupported type such as `u32`, a malformed parameter, text outside the one
+  `world`). A WIT export the module lacks raises `RuntimeError`.
+- **Every WIT import needs a host callback** (camelCase key), checked before the `.wasm` is read;
+  the `TypeError` names every missing one. A callback must return its import's WIT type (an `s32`
+  import cannot return `None`, `2.9` or `True`) and must not be `async`.
+- **Typed calls check their arguments:** the count, and the kind per WIT type: `s32` / `s64` take
+  an `int` in range (not a `bool`), `f32` / `f64` a `float`, `bool` a `bool`, `string` a `str`.
+  A wrong one raises `TypeError` naming the export and the parameter.
+- A module import that nothing provides (raw mode: no callback of that name) raises at load.
+
 `create_singleton()` (one shared instance) and `InstancePool()` (N instances for
 concurrent workloads) are also exported. See the
 [project on GitHub](https://github.com/synapticforge1/universalWasmLoader-py) for the
@@ -69,4 +83,4 @@ change requires. It also runs the previous release's tests against the new code.
 
 | Version | What changed | How to migrate |
 | --- | --- | --- |
-| — | No breaking change since 1.0.0 (the compatibility gate began 2026-10-26). | — |
+| _next release_ | SPEC 4.0.0. A `.wit` that exists but cannot be read or parsed is an error (it was silently ignored, loading raw); an unknown WIT type is an error (it was read as `s32`). A missing host callback fails the load (it returned `0`), and so does a module import nothing provides. Callback results and typed-call arguments are checked, not coerced: e.g. `f64` refuses an `int`, `s32` refuses a `bool` or a `float`. A path not ending in `.wasm` has no companion `.wit`. | Provide a callback for every WIT import; return its exact WIT type; pass `float` to `f32` / `f64` (`3.0`, not `3`); fix or remove a broken `.wit`. |
