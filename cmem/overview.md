@@ -312,8 +312,10 @@ exercisable without PyPI failing, so unproven by the run).
 - **`.github/workflows/ci.yml`** — every push to `main` and every PR: `contents: read`, a
   tokenless fetch of exactly `$GITHUB_REF` at `$GITHUB_SHA`, no `uses:`; pixi 0.84.1 by URL +
   sha256 (`c81a1659…454a`: the release's `.sha256` = GitHub's asset digest = a local hash),
-  `pixi install --locked`, lint / typecheck / test, `compat.py --snapshot`. The first CI repo-wide
-  gate on GitHub outside a publish. **UNMEASURED until pushed.**
+  `pixi install --locked`, lint / typecheck / test, `compat.py --snapshot`. This repo's first gate
+  on GitHub outside a publish. **Measured: run 42518020978 (push of `82f78c8`, owner: "yes" to the
+  push) green in every step; no Publish run on that commit (no tag), as designed.** The pixi-locked
+  `checks` job of `publish.yml` shares those steps; its own first run is the next release's.
 - **`publish.yml` now runs on a `v*` tag push** (+ `workflow_dispatch` for re-runs), so `pixi run
   release` starts it; the upload still waits for the `pypi` environment's approval. Per-tag
   `concurrency`, queued, never cancelled. `checks` installs `pixi.lock` (no unpinned pip) and
