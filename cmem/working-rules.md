@@ -5,7 +5,15 @@ The workspace floor is `../../cmem/working-rules.md`; these are what bite in thi
 ## Git and release
 
 - **Nothing is pushed, tagged or published unless the owner says so.** A published PyPI version is
-  immutable ([overview.md](overview.md) § release toolchain).
+  immutable ([overview.md](overview.md) § release toolchain). **Since 2026-11-08 pushing a `v*`
+  tag STARTS the PyPI publish** (`publish.yml`; it still waits for the `pypi` approval), and
+  re-pointing a pushed tag re-runs it — so a tag push is a publish request. A push to `main` runs
+  only `ci.yml`.
+- **Read a workflow run back, never assume it:** `api.github.com/repos/synapticforge1/
+  universalWasmLoader-py/actions/runs?head_sha=<sha>` (public, no `gh`); a PyPI claim from
+  `pypi.org/pypi/universal-wasm-loader/<version>/json` (the project-level JSON lags minutes).
+- **A one-time check whose exit code is the measurement is not piped** — measured the hard way
+  2026-11-08 (`PIPESTATUS` in a subshell printed `exit=0` for refusals).
 - Commit messages go through a file: `git commit -F <file>`. Never a heredoc.
 - **Branching = the workspace floor** (this repo had no rule of its own; adopted 2026-10-26):
   branch → `pixi run gate` → `git merge --no-ff` into `main`. Decide commit granularity before

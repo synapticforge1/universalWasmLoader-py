@@ -47,9 +47,10 @@ The OIDC claim now carries `repository_owner: synapticforge1`; the old `jrmarcum
 have made `mint-token` refuse. **Proven live 2026-10-21** — the `1.1.0` CI publish minted its token
 through the new publisher.
 
-**Still to confirm on GitHub (not checked from here):** the `pypi` Environment's required reviewers
-and `v*`-tag deployment rule under the org, and the `synapticforge1` Actions policy (the
-`run:`-only workflow is safe under any policy).
+**Confirmed since:** the `synapticforge1` Actions policy accepts hash-pinned `uses:` (this repo's
+run 42517168769, 2026-11-08). The `pypi` environment still pauses each publish for the owner's
+approval (observed by the owner on 2.0.0); its reviewer list and `v*`-tag rule were not read from
+here (the environments API needs auth).
 
 The PyPI package name (`universal-wasm-loader`) and the PyPI account are unaffected by the transfer.
 The JSR scope `@jrmarcum/...` used by the JS upstream is a JSR scope, not a GitHub owner, and is
@@ -65,8 +66,9 @@ not changed by this move.
 - **Package/env manager:** pixi (conda-forge channel for Python; PyPI for deps). Editable
   install of the package itself plus a `dev` feature for the test/lint/type tools.
 - **Build backend:** hatchling (wheel packages `src/universal_wasm_loader`).
-- **Registry:** PyPI, package name **`universal-wasm-loader`** (latest published **`1.1.1`**, the
-  only version PyPI serves on 2026-11-08; PyPI never reuses a version number, removed ones included).
+- **Registry:** PyPI, package name **`universal-wasm-loader`** (latest published **`2.0.0`**; PyPI
+  serves 1.1.1 + 2.0.0, measured 2026-11-08; 1.0.0 / 1.0.1 / 1.1.0 removed, owner-confirmed; PyPI
+  never reuses a version number, removed ones included).
 
 ## Repository layout
 
@@ -82,9 +84,14 @@ tests/
   test_refusals.py # SPEC 4.0.0 §8 "Refusals", every non-http row
   test_fixtures.py # fixtures/ = the stamped reference set (sha256 vs fixtures.json)
   test_wit_parser.py
+  test_pypi_files.py # scripts/pypi_files.py (urlopen stubbed; no network)
   fixtures/        # the -js reference set, copied unmodified (H7): {math,booleans,strings,
                    # imports,wasi_io}_50.{wasm,wit}, init_check.{wat,wasm}, fixtures.json
   py_fixtures/     # Python-only: versioned.wat (`version` global, for @N pinning)
+scripts/           # pixi Python: bump_version, release, publish, compat, pypi_files, _common
+.github/workflows/
+  ci.yml           # the gate on every push to main / PR (pixi-locked)
+  publish.yml      # on a v* tag push: checks job, then publish job (OIDC, `pypi` approval)
 upstream/universalwasmloader-js/   # git submodule (reference impl + SPEC.md)
 ```
 
@@ -236,8 +243,10 @@ Numerics/bool params and returns, and string **params**, are unchanged and remai
   `tests/py_fixtures/versioned.wat` — the reference set has no `version` global.
   Inverted 2026-10-26: deleting `booleans_50.wit` failed exactly the stamp test and the five bool
   tests (`assert 1 is True`: the raw path returns the i32).
-- `test_wit_parser.py` covers the WIT parser; `test_refusals.py` the SPEC 4.0.0 refusals.
-- **Baseline 2026-11-08: 91 passed, 0 failed** (`pixi run gate`). Before: **2026-10-26: 34 passed, 0 failed** (`pixi run test`). The old harness bug (drift L8:
+- `test_wit_parser.py` covers the WIT parser; `test_refusals.py` the SPEC 4.0.0 refusals;
+  `test_pypi_files.py` the upload planner.
+- **Baseline 2026-11-08: 105 passed, 0 failed** (`pixi run gate`, and CI run 42518020978 on
+  GitHub). Before: 91 (SPEC 4.0.0), 92 (+ pool size), **2026-10-26: 34 passed** (`pixi run test`). The old harness bug (drift L8:
   `conftest` compiled `.wat` with `Module.serialize()`, which yields wasmtime's precompiled
   artifact, not a `.wasm`, so 13 tests failed "input was not valid utf-8") is gone: the one
   remaining `.wat` is compiled with `wasmtime.wat2wasm`.
@@ -247,28 +256,30 @@ Numerics/bool params and returns, and string **params**, are unchanged and remai
 - Dev tooling: `pixi run lint` (ruff), `pixi run fmt` (ruff format), `pixi run typecheck`
   (mypy strict), `pixi run test` (pytest).
 - **The gate: `pixi run gate`** = lint → typecheck → test (added 2026-10-26; a test task alone is
-  not a gate). `publish.yml` runs the same three commands in the same order, each able to fail the
-  job before the build. Inverted 2026-10-26: an unsorted import failed it at lint; a planted
+  not a gate). `ci.yml` (every push / PR) and `publish.yml`'s `checks` job run the same three
+  commands in the same order, each able to fail the job before the build. Inverted 2026-10-26: an unsorted import failed it at lint; a planted
   `tuple[int, str]` return failed it at mypy (lint passing). The four pre-existing `src/` findings
   were fixed with it (two UP035 `collections.abc.Callable`, one unused `type: ignore`, and
   `_loader.py`'s nameless import — `ImportType.name` is `Optional` for the module-linking proposal —
-  now a `RuntimeError` instead of `define_func(…, None, …)`). ⚠️ CI installs ruff / mypy / pytest
-  from pip UNPINNED, local runs use `pixi.lock`: a newer ruff could flag what passes locally.
-- Build: hatchling wheel + sdist via `pixi run python -m build`. The packaging tools (`build`,
-  `twine`) live in a **`publish` pixi feature** (`pixi.toml`), included in the default environment —
-  run `pixi install` once to materialize them into the env + `pixi.lock`. `pixi.lock` is committed
-  for reproducibility (it was stated so since 2026-06-19 but never actually committed — first added
-  2026-10-21, generated by pixi 0.82.1); `.pixi/` and `dist/` are gitignored, as are a stray `uv.lock`
-  and the machine-local `.claude/`. pixi 0.82 warns that `pixi.toml`'s `[project]` table should be
-  renamed `[workspace]` (deprecation only; not yet changed).
+  now a `RuntimeError` instead of `define_func(…, None, …)`). Since `4548c34` (2026-11-08) CI
+  installs the same `pixi.lock` (pixi 0.84.1 pinned by sha256), so CI and local runs use one set of
+  tool versions (until then CI pip-installed them unpinned).
+- Build: hatchling wheel + sdist via `pixi run python -m build` (local: isolated, fetches
+  hatchling; CI: `--no-isolation` with the locked hatchling 1.33.0). The packaging tools
+  (`hatchling`, `build`, `twine`) live in a **`publish` pixi feature** (`pixi.toml`), included in
+  the default environment. `pixi.lock` is committed (first added 2026-10-21; last regenerated
+  2026-11-08 by pixi 0.84.1, which CI pins); `.pixi/` and `dist/` are gitignored, as are a stray
+  `uv.lock` and the machine-local `.claude/`. pixi warns that `pixi.toml`'s `[project]` table
+  should be renamed `[workspace]` (deprecation only; not yet changed). **The build is not
+  byte-reproducible across machines** (measured 2026-11-08, 2.0.0).
 
 ### Single source of truth + the three-script toolchain
 
 **`pyproject.toml` `[project] version` is the single source of truth** for the package version;
 `pixi.toml` mirrors it (kept in sync by `bump_version.py`). Three scripts key off it, all **pixi
 Python** (`scripts/*.py` + shared `_common.py`; `pixi run bump|release|publish …`, or
-`pixi run python scripts/<name>.py …`). Tagging/releasing and PyPI publishing are **deliberately
-decoupled**.
+`pixi run python scripts/<name>.py …`). Since 2026-11-08 the release's tag push STARTS the CI
+publish (which waits for the `pypi` approval); `publish.py` is the local fallback.
 
 **Ported from Bash + Nushell 2026-10-26 (workspace letter H15).** The six `.sh` / `.nu` files were
 replaced only after an equivalence run (one-time, not committed): every case run on the `.sh`
@@ -292,11 +303,12 @@ exercisable without PyPI failing, so unproven by the run).
    `pixi run python -m build`, tags `v<version>`, pushes branch + tag to `origin`, and creates the matching
    **GitHub Release** via `gh` (skippable). Idempotent (reuses a tag only if it points at HEAD;
    skips an existing Release; degrades gracefully if `gh` is missing/unauthenticated — the tag is
-   still pushed). Does **NOT** publish to PyPI. `--dry-run` / `--no-release` / `--no-build` /
-   `--remote`.
-3. **`scripts/publish.py`** — the separate, deliberate PyPI step.
-   **Exact publish command:** `pixi run python -m build` then `pixi run python -m twine check dist/*`
-   then `pixi run python -m twine upload dist/*` — run inside the pixi env (this is a pixi project).
+   still pushed). It does not upload itself, but the pushed `v*` tag starts `publish.yml`.
+   `--dry-run` / `--no-release` / `--no-build` / `--remote`.
+3. **`scripts/publish.py`** — the LOCAL fallback PyPI path (CI on the tag is the normal one).
+   **Flow:** `pixi run python -m build`, `twine check`, then `scripts/pypi_files.py`'s plan (only
+   404 = no files yet; files already there skipped by name), then `twine upload` of the MISSING
+   files only — run inside the pixi env (this is a pixi project).
    Toolchain is auto-detected (pixi when a `pixi.toml` + the `pixi` CLI are present); force with
    `UWL_PY_TOOL=pixi|python` (the `python` fallback uses bare `python -m …`, overridable via
    `$PYTHON`/`$env.PYTHON`).
@@ -358,12 +370,11 @@ GitHub for v1.1.1 — right commit ok, wrong commit / absent tag exit 1. **Measu
   (2) POST `{"token": <jwt>}` to `https://pypi.org/_/oidc/mint-token` → ephemeral project-scoped PyPI
   token (minutes-long); (3) `twine upload` with `TWINE_PASSWORD=<minted token>`. Both tokens are
   `::add-mask::`ed. Nothing is persisted in secrets.
-- **CRITICAL `run:`-only constraint (unchanged).** The Actions policy (under `jrmarcum`, where this
-  was written) permitted only `jrmarcum`-owned actions; ANY third-party `uses:` (`actions/checkout`,
-  `actions/setup-python`, `pypa/gh-action-pypi-publish`) caused `startup_failure`. Since the
-  2026-10-21 transfer the governing policy is the **`synapticforge1`** org's — not yet re-verified.
-  Every step is a plain `run:` step — including the OIDC exchange — which is safe under either
-  policy. Do not reintroduce `uses:`.
+- **`run:`-only constraint — SUPERSEDED 2026-11-08.** Under `jrmarcum` the Actions policy
+  permitted only owner-owned actions; ANY third-party `uses:` caused `startup_failure`. The
+  `synapticforge1` org accepts hash-pinned actions (run 42517168769), so `publish.yml` now uses
+  exactly two, pinned by commit (upload- / download-artifact). Rule now: no other `uses:`, and
+  never one pinned by tag.
 - Steps: checkout via `git clone --depth=1 --branch <input ref> <token-auth url> .`; `pip install
   --upgrade build "twine>=6.1.0" "packaging>=24.2"`; `pip install -e ".[dev]"`; the gate — `ruff
   check src/ tests/`, `mypy src/`, `pytest tests/ -v`, each a hard step (the advisory `|| true` was
@@ -382,7 +393,7 @@ GitHub for v1.1.1 — right commit ok, wrong commit / absent tag exit 1. **Measu
 2. **Auth, two independent paths:**
    - *Local `publish` script:* export `TWINE_USERNAME=__token__` / `TWINE_PASSWORD=pypi-…`
      (project-scoped API token; or a `[pypi]` entry in `~/.pypirc`).
-   - *Manual CI workflow:* register a **Trusted Publisher** on PyPI (no stored token) — a *pending
+   - *CI workflow (on a `v*` tag push since 2026-11-08; manual-only before):* register a **Trusted Publisher** on PyPI (no stored token) — a *pending
      publisher* before the project's first upload — matching Owner **`synapticforge1`** (was
      `jrmarcum` until the 2026-10-21 transfer; **the PyPI-side publisher must be re-registered
      with the new owner before the next CI publish**), Repository `universalWasmLoader-py`,
@@ -422,6 +433,9 @@ GitHub for v1.1.1 — right commit ok, wrong commit / absent tag exit 1. **Measu
   owner) + `uv` (scoop); `nu` and `gh` are **absent**, so the `.sh` scripts are the ones run here.
   The baseline under `pixi run python -m pytest` matches the uv run below (13/13). Without `gh` the publish workflow is dispatched from
   the GitHub Actions tab (Run workflow → `ref` = the tag; "Use workflow from: Tag v…").
+- **Tooling on the dev host (re-checked 2026-11-08):** pixi **0.84.1**, Bun 1.4.4 (one-time
+  checks), `gh` still **absent** (no GitHub Releases from `release.py`; Actions runs are read
+  through the public API). Since the tag push now starts the publish, no dispatch is needed.
 
 ### Release `1.1.0` (2026-10-21) — first release from `synapticforge1`
 

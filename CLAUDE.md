@@ -32,5 +32,8 @@ project memory.
   The gate: `pixi run gate` (lint → typecheck → test, = CI).
 - `pyproject.toml` `[project] version` — the single source of truth for the package version.
 - `scripts/{bump_version,release,publish}.py` (pixi's Python: `pixi run bump|release|publish`) —
-  the release toolchain. Bump (gated) → release (tag + push + GitHub Release) → publish (PyPI),
-  publishing kept a deliberate, decoupled step. See [`cmem/overview.md`](cmem/overview.md).
+  the release toolchain. Bump (gated) → release (tag + push) → **the `v*` tag push starts
+  `.github/workflows/publish.yml`**, which uploads to PyPI after the owner approves the `pypi`
+  environment; `publish.py` is the local fallback. Both upload only the files PyPI lacks
+  (`scripts/pypi_files.py`). `.github/workflows/ci.yml` runs the gate on every push / PR.
+  See [`cmem/overview.md`](cmem/overview.md).
