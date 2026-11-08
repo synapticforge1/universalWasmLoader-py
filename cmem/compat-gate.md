@@ -72,3 +72,18 @@ is invisible to Rule 3 until the next release becomes the baseline (its suite is
 Until then it is caught by the gate's own test step (`pixi run gate` / CI), not by Rule 3.
 
 **Consumers (Rule 3, second half):** no known PyPI package depends on this one; nothing to run.
+
+## SPEC 4.0.0, 2026-11-08 (against v1.1.1)
+
+Re-baseline alone `568f7f3` (`"spec"` 3.0.0 → 4.0.0, symbols unchanged), behaviour `bb7feb6`.
+`compat.py` report: floor **major** (`SPEC.md v3.0.0 -> v4.0.0`); `bump major --dry-run` ALLOWED →
+2.0.0 (Breaking row present). Rule 3 runs only for a patch / minor (`check`, `requested in
+("patch", "minor")`), so it does not gate this major. Its report: v1.1.1's tests 34 / 0 on v1.1.1's
+src, **0 passed / 1 not on the new src** — ONE collection error (v1.1.1's `test_wit_parser.py`
+imports `parse_wit_funcs`, removed) aborts the whole pytest session, so every test reads as
+"missing now". Run by hand without that file: v1.1.1's 26 behaviour tests pass on the new src.
+
+⚠️ **Lesson: Rule 3 is all-or-nothing on collection.** A previous tag's test module that imports
+a private helper turns a later rename into "every test regressed". For a patch / minor that
+would refuse the bump for no behaviour reason. Tests that need an internal import it inside the
+test (as `test_refusals.py`'s void-rule test does), so one rename fails one test.

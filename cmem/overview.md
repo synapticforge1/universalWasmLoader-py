@@ -16,10 +16,14 @@ conformance tests. The JS repo is vendored as a git submodule at
 - **Status:** **PUBLISHED on PyPI** (`Development Status :: 5 - Production/Stable`). First release
   **1.0.0** uploaded 2026-06-19 via the OIDC Trusted-Publishing workflow; **1.0.1** uploaded
   2026-06-19 (README trimmed to a user-facing PyPI page + clearer usage example); **1.1.0** uploaded
-  2026-10-21 (SPEC §10 loader capabilities; first release from the `synapticforge1` org). **Current /
-  latest published version: `1.1.0`;** `v1.1.1` tagged and pushed 2026-10-26, awaiting the PyPI
-  publish run. Brought to parity with the `-c` and `-zig` ports on
+  2026-10-21 (SPEC §10 loader capabilities; first release from the `synapticforge1` org); **1.1.1**
+  uploaded 2026-10-26 20:23 UTC (2 files). **Measured 2026-11-08 (PyPI JSON API): PyPI serves ONLY
+  `1.1.1`**; `/pypi/universal-wasm-loader/<v>/json` answers **404 for 1.0.0, 1.0.1 and 1.1.0** —
+  they were removed from PyPI, by whom and when is recorded nowhere in this repo or the workspace
+  (open item in [open-work.md](open-work.md)). Brought to parity with the `-c` and `-zig` ports on
   2026-06-19. Live at <https://pypi.org/project/universal-wasm-loader/>.
+- **Next release: 2.0.0 (SPEC 4.0.0), on local `main` only, NOT bumped / pushed / tagged**
+  (2026-11-08; see § "SPEC 4.0.0" below). The bump, push, release and publish are the owner's.
 - **Home:** <https://github.com/synapticforge1/universalWasmLoader-py> — the **`synapticforge1`**
   GitHub organization (owner-controlled). Transferred from the personal account `jrmarcum`
   (confirmed via the GitHub API 2026-10-21); see "Repository transfer" below. The upstream JS
@@ -61,8 +65,8 @@ not changed by this move.
 - **Package/env manager:** pixi (conda-forge channel for Python; PyPI for deps). Editable
   install of the package itself plus a `dev` feature for the test/lint/type tools.
 - **Build backend:** hatchling (wheel packages `src/universal_wasm_loader`).
-- **Registry:** PyPI, package name **`universal-wasm-loader`** (latest published **`1.1.0`**;
-  `1.0.0` and `1.0.1` also live and immutable).
+- **Registry:** PyPI, package name **`universal-wasm-loader`** (latest published **`1.1.1`**, the
+  only version PyPI serves on 2026-11-08; PyPI never reuses a version number, removed ones included).
 
 ## Repository layout
 
@@ -70,11 +74,12 @@ not changed by this move.
 src/universal_wasm_loader/
   __init__.py      # public re-exports: wasm_import, create_singleton, InstancePool
   _loader.py       # core: wasm_import(), create_singleton(), InstancePool, version pinning
-  _wit_parser.py   # regex WIT companion-file parser (parse_wit)
-  _abi.py          # Canonical ABI bridge (import env + export proxy, string/bool marshalling)
+  _wit_parser.py   # STRICT WIT parser, a port of -js wit-parser.js 2.0.0 (parse_wit; SPEC 4.0.0 §2)
+  _abi.py          # Canonical ABI bridge: callback resolution, import env, export proxy, checks
 tests/
   conftest.py      # pytest fixtures: paths into fixtures/, raw staging, versioned.wat -> .wasm
   test_loader.py   # loader + ABI integration tests
+  test_refusals.py # SPEC 4.0.0 §8 "Refusals", every non-http row
   test_fixtures.py # fixtures/ = the stamped reference set (sha256 vs fixtures.json)
   test_wit_parser.py
   fixtures/        # the -js reference set, copied unmodified (H7): {math,booleans,strings,
@@ -99,9 +104,12 @@ Idiomatic Python equivalents of the reference loader's `wasmImport` / `createSin
     through.
   - Without a WIT file: returns raw exports wrapped for direct calling
     (`_wrap_for_user` — `Func` → callable, `Global` → its value).
-  - `host_callbacks` is a flat dict of host functions the module imports; WIT imports are
-    wrapped with ABI adaptation (`build_component_import_env`), and any unbound **non-WASI**
-    import is satisfied with a typed no-op stub (`_make_noop`).
+  - `host_callbacks` is a flat dict of host functions the module imports. With a `.wit`: every
+    WIT import needs one (camelCase key, or the kebab WIT name), resolved BEFORE the `.wasm` is
+    read (`resolve_import_callbacks`), then wrapped with ABI adaptation
+    (`build_component_import_env`). Without a `.wit` (raw): bound by the module's own import
+    name, raw values. **Any non-WASI function import bound to nothing fails the load naming
+    every one** (since 2.0.0; until 1.1.1 a no-op stub `_make_noop` returned 0, deleted).
   - **SPEC §10 producer model (loader capabilities):**
     - **§10.1** — after instantiation, `_call_initialize` runs a reactor module's
       `_initialize` export exactly once before any other export is called (no-op if absent).
@@ -121,8 +129,16 @@ Idiomatic Python equivalents of the reference loader's `wasmImport` / `createSin
 
 ## Canonical ABI (as implemented in `_abi.py`)
 
-- **numbers** (`s32`/`s64`/`f32`/`f64`) — passed straight through.
-- **bool** ↔ i32: params `int(bool(v))`; returns `bool(result != 0)`.
+- **argument / result checks (SPEC 4.0.0 §4, `_arg_problem`)** — no coercion: `s32` / `s64` an
+  `int` in range and NOT a `bool` (Python's `bool` is an `int` subclass, excluded by hand);
+  `f32` / `f64` a `float` only (an `int` is refused — the "floating type" reading -dotnet / -jvm
+  / -go chose; JS accepts any number because it has one number type); `bool` a `bool`; `string` a
+  `str`. Typed calls check arity + kinds (`TypeError` naming export + parameter); host-callback
+  returns are checked the same way (`TypeError` naming callback, WIT import, result type, value;
+  wasmtime-py re-raises a host function's exception to the export's caller unchanged, measured
+  2026-11-08); an awaitable return is refused (a coroutine is closed first); void ignores it.
+- **numbers** (`s32`/`s64`/`f32`/`f64`) — passed straight through once checked.
+- **bool** ↔ i32: params `1 if v else 0`; returns `result != 0`.
 - **string** ↔ `(ptr: i32, len: i32)`:
   - **params** — UTF-8 encode, allocate via the module's exported `cabi_realloc(0, 0, 1, len)`,
     write bytes into exported `memory`, pass `(ptr, len)` as two args (`_encode_string`).
@@ -131,10 +147,35 @@ Idiomatic Python equivalents of the reference loader's `wasmImport` / `createSin
   (`kebab_to_wasm_key`) for wasmtime export/import lookup. Imports resolve callbacks by
   camelCase first, then raw name.
 
-The WIT parser (`_wit_parser.py`) is regex-based: extracts `package`, `world`, and the
-`import` / `export` `func(...)` signatures; unknown param/return types collapse to `s32`.
+The WIT parser (`_wit_parser.py`) is STRICT since 2.0.0: a port of -js `wit-parser.js` 2.0.0,
+same grammar and messages; anything outside it raises `ValueError` (until 1.1.1 it was loose
+regex: unknown types read as `s32`, malformed parameters dropped, garbage = an empty world).
 
-## SPEC conformance status — ✅ ALIGNED TO SPEC 3.0.0 (2026-06-15)
+## SPEC 4.0.0 — ✅ IMPLEMENTED on local `main` (2026-11-08, workspace ledger C29)
+
+Commits **`568f7f3`** (surface re-baseline alone: README `SPEC.md` v4.0.0, `api-surface.json`
+`"spec": "4.0.0"`, 7 symbols unchanged; submodule `d9f6860` → `1169ab9` = -js tag `v2.0.0`),
+**`bb7feb6`** (behaviour + tests + README Breaking row). Item by item:
+(1) §2 absent = `FileNotFoundError` or a path not ending in `.wasm` (1.1.1's `Path.with_suffix`
+made `math.bin` read `math.wit`); any other read failure → `OSError` "cannot read .wit '<path>'",
+non-UTF-8 → `ValueError`; the `except Exception: wit = None` is gone. (2) §2 strict parser →
+`ValueError` "invalid .wit '<path>': …"; a WIT export the module lacks → `RuntimeError`.
+(3) §4 every WIT import needs a callback, all missing named (`TypeError`), and a string-result
+import (`NotImplementedError`), both BEFORE the `.wasm` is read; callback returns checked.
+(4) §4 typed calls check arity + kinds; no kind-specific accessors here, so that half is n/a.
+(5) §11 **n/a**: local files only, no http path, so no `options` argument (as loader-c).
+Also removed: the raw-mode 0-stub for unbound imports, and two silent fall-throughs on a string
+with no `memory` / `cabi_realloc` (passed the `str` through / returned the raw pointer).
+**The check, §8 Refusals:** every non-http row is a test (`tests/test_refusals.py`). Tests 34 →
+91, gate green. **Inverted:** the new suite on v1.1.1's src → 57 failed / 34 passed (26 unchanged
+tests + 8 the old code also met). v1.1.1's 26 behaviour tests pass on the new src; its 8 parser
+tests call 3.0.0 internals (`parse_wit_funcs`; `parse_wit_type("unknown") == "s32"`), not required
+at a major floor. `compat.py`: floor **major** (`SPEC.md v3.0.0 -> v4.0.0`); `bump major --dry-run`
+ALLOWED → 2.0.0. **Version decision: MAJOR, 2.0.0** — not bumped; bump / push / release are the
+owner's. Fixtures unchanged. Known remaining divergence: `InstancePool` default `size=2` (SPEC §6.2
+says 4; pre-existing, not changed — [open-work.md](open-work.md)).
+
+## SPEC conformance status — ✅ ALIGNED TO SPEC 3.0.0 (2026-06-15) — history; 4.0.0 above
 
 The cross-language `SPEC.md` is at **v3.0.0 (2026-06-15)**, a **BREAKING** change to the
 string / aggregate **return** convention. **This port now implements the SPEC 3.0.0
@@ -194,8 +235,8 @@ Numerics/bool params and returns, and string **params**, are unchanged and remai
   `tests/py_fixtures/versioned.wat` — the reference set has no `version` global.
   Inverted 2026-10-26: deleting `booleans_50.wit` failed exactly the stamp test and the five bool
   tests (`assert 1 is True`: the raw path returns the i32).
-- `test_wit_parser.py` covers the WIT parser.
-- **Baseline 2026-10-26: 34 passed, 0 failed** (`pixi run test`). The old harness bug (drift L8:
+- `test_wit_parser.py` covers the WIT parser; `test_refusals.py` the SPEC 4.0.0 refusals.
+- **Baseline 2026-11-08: 91 passed, 0 failed** (`pixi run gate`). Before: **2026-10-26: 34 passed, 0 failed** (`pixi run test`). The old harness bug (drift L8:
   `conftest` compiled `.wat` with `Module.serialize()`, which yields wasmtime's precompiled
   artifact, not a `.wasm`, so 13 tests failed "input was not valid utf-8") is gone: the one
   remaining `.wat` is compiled with `wasmtime.wat2wasm`.
@@ -355,7 +396,7 @@ exercisable without PyPI failing, so unproven by the run).
   workflow from the Actions tab against `v1.1.0` and approved the `pypi` environment.
 - **Verified on PyPI 2026-10-21** (JSON API): latest = `1.1.0`, wheel + sdist uploaded
   22:55 UTC; PyPI's project links now show `github.com/synapticforge1/universalWasmLoader-py`.
-### Release `1.1.1` (2026-10-26) — tagged and pushed, NOT yet on PyPI
+### Release `1.1.1` (2026-10-26) — tagged, pushed, and on PyPI (uploaded 2026-10-26 20:23 UTC; measured 2026-11-08)
 
 - **Contents** (merge `b09da41`, the workspace-conformance branch): the stamped -js reference
   fixtures (H7) and the fixed `.wat` harness (L8, 34 passed); the real gate (`pixi run gate` = CI,
@@ -368,9 +409,8 @@ exercisable without PyPI failing, so unproven by the run).
   `v1.1.1` → `e92e2dd`, `main` and the tag pushed (read back with `ls-remote`); no GitHub Release
   (`gh` installed but unauthenticated). Locally on the tag: `compat.py --release` passes,
   `twine check` PASSED for both files.
-- **To publish:** run the `Publish` workflow from the Actions tab against `v1.1.1` and approve the
-  `pypi` environment. Its new steps (full clone + submodule, gate, `compat.py --release`) run for
-  the first time on GitHub then — UNMEASURED there until that run.
+- **Published:** PyPI serves 1.1.1 (2 files, 2026-10-26 20:23 UTC; the workspace measured it first
+  and noted this memory lagged). The run itself (id, step results) was not looked up from here.
 
 - **Test baseline 2026-10-21** (`uv run --extra dev python -m pytest tests`, wasmtime from PyPI):
   **13 passed / 13 failed.** All 13 failures are the known `.wat`-fixture harness caveat ("input was
