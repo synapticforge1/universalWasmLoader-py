@@ -234,18 +234,27 @@ def baseline(tag: str) -> dict[str, Any]:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def has_next_release_row() -> bool:
+def has_breaking_row(row: str) -> bool:
+    """Is `row` (a table row's first cell, e.g. `| v2.0.0 |`) in README's Breaking Changes?"""
     text = (ROOT / "README.md").read_text(encoding="utf-8")
     start = text.find(BREAKING_HEADING)
     if start < 0:
         return False
     section = text[start + len(BREAKING_HEADING):]
     nxt = section.find("\n#")
-    return NEXT_RELEASE_ROW in (section if nxt < 0 else section[:nxt])
+    return row in (section if nxt < 0 else section[:nxt])
 
 
-def check(requested: str, since: str | None) -> list[str]:
-    """Problems that refuse a `requested` bump from tag `since`; prints the evidence."""
+def has_next_release_row() -> bool:
+    return has_breaking_row(NEXT_RELEASE_ROW)
+
+
+def check(requested: str, since: str | None, released: str | None = None) -> list[str]:
+    """Problems that refuse a `requested` bump from tag `since`; prints the evidence.
+
+    `released` is the version being released (`--release`, on the tagged commit). The bump has
+    stamped the major's row by then (`| _next release_ |` -> `| v<released> |`), so Rule 4 looks
+    for that stamped row; before a bump it looks for `| _next release_ |`."""
     problems: list[str] = []
     current = surface_of(ROOT / "src", ROOT / "README.md")
     if not SNAPSHOT.is_file() or SNAPSHOT.read_text(encoding="utf-8") != render(current):
@@ -260,8 +269,9 @@ def check(requested: str, since: str | None) -> list[str]:
         print(f"  {r}")
     if LEVELS.index(requested) < LEVELS.index(floor):
         problems.append(f"a {requested} bump is below the floor ({floor})")
-    if floor == "major" and not has_next_release_row():
-        problems.append(f"the floor is major: README needs a `{NEXT_RELEASE_ROW}` row under "
+    row = f"| v{released} |" if released else NEXT_RELEASE_ROW
+    if floor == "major" and not has_breaking_row(row):
+        problems.append(f"the floor is major: README needs a `{row}` row under "
                         f'"{BREAKING_HEADING}" (Rule 4)')
     if requested in ("patch", "minor"):
         green, lines = previous_tag_tests(since)
@@ -302,7 +312,7 @@ def main(argv: list[str]) -> None:
         earlier = [t for t in all_tags if _semver(t[1:]) < _semver(version)]
         since = earlier[-1] if earlier else None
         step = level_between(since[1:], version) if since else "patch"
-        problems = check(step, since)
+        problems = check(step, since, released=version)
     else:
         since = all_tags[-1] if all_tags else None
         problems = check("patch", since)
