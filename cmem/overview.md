@@ -22,8 +22,8 @@ conformance tests. The JS repo is vendored as a git submodule at
   they were removed from PyPI. **Owner, 2026-11-08: "yes 1.1.1 is the only one on pypi"** —
   intended. Those three version numbers stay reserved on PyPI forever. Brought to parity with the `-c` and `-zig` ports on
   2026-06-19. Live at <https://pypi.org/project/universal-wasm-loader/>.
-- **Next release: 2.0.0 (SPEC 4.0.0), on local `main` only, NOT bumped / pushed / tagged**
-  (2026-11-08; see § "SPEC 4.0.0" below). The bump, push, release and publish are the owner's.
+- **2.0.0 (SPEC 4.0.0) tagged and pushed 2026-11-08, NOT yet on PyPI** — § "Release 2.0.0" below.
+  The PyPI publish is the `Publish` workflow, run by hand from the Actions tab.
 - **Home:** <https://github.com/synapticforge1/universalWasmLoader-py> — the **`synapticforge1`**
   GitHub organization (owner-controlled). Transferred from the personal account `jrmarcum`
   (confirmed via the GitHub API 2026-10-21); see "Repository transfer" below. The upstream JS
@@ -426,6 +426,22 @@ its first run (2.0.0).** The text below is the history of the single-job form.
   `twine check` PASSED for both files.
 - **Published:** PyPI serves 1.1.1 (2 files, 2026-10-26 20:23 UTC; the workspace measured it first
   and noted this memory lagged). The run itself (id, step results) was not looked up from here.
+
+### Release `2.0.0` (2026-11-08) — tagged and pushed; NOT yet on PyPI
+
+- **Owner:** "yes C30 applies here. yes 1.1.1 is the only one on pypi. yes change the instance
+  pool. yes release 2.0.0". **Contents:** SPEC 4.0.0 (`568f7f3` + `bb7feb6`), `InstancePool`
+  size 4 (`93cc2f3`), the two-job publish workflow (`ae51e95`), the compat Rule 4 fix (`238afa0`).
+  92 tests. Floor major: SPEC 3.0.0 → 4.0.0 and `InstancePool.__init__` changed.
+- **Flow:** `pixi run bump major` → `13f125a` (README row stamped `| v2.0.0 |`) → `pixi run
+  release`: build (hatchling 1.33.0), annotated tag `v2.0.0` → `13f125a`, `main` + tag pushed
+  (`389a460..13f125a`, read back with `ls-remote`); no GitHub Release (`gh` absent). Then
+  `compat.py --release` on the tag REFUSED (the Rule 4 bug, [compat-gate.md](compat-gate.md)), so
+  CI would have stopped the publish. Fixed in `238afa0`; **on the owner's word ("Move tag to the
+  fix") `v2.0.0` was MOVED from `13f125a` to the commit carrying this record**, force-pushed with
+  a lease. Nothing had consumed the old tag: PyPI latest 1.1.1, no GitHub Release, no run.
+- **To publish:** Actions tab → `Publish` → Run workflow, "Use workflow from: Tag v2.0.0", `ref`
+  = `v2.0.0`; approve the `pypi` environment. First run of the two-job workflow: UNMEASURED.
 
 - **Test baseline 2026-10-21** (`uv run --extra dev python -m pytest tests`, wasmtime from PyPI):
   **13 passed / 13 failed.** All 13 failures are the known `.wat`-fixture harness caveat ("input was

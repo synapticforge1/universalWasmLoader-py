@@ -83,6 +83,16 @@ src, **0 passed / 1 not on the new src** — ONE collection error (v1.1.1's `tes
 imports `parse_wit_funcs`, removed) aborts the whole pytest session, so every test reads as
 "missing now". Run by hand without that file: v1.1.1's 26 behaviour tests pass on the new src.
 
+🐞 **Rule 4 on `--release` was broken until `238afa0` (found releasing 2.0.0, 2026-11-08).** It
+always looked for `| _next release_ |`, but `bump major` stamps that row to `| v<version> |`
+BEFORE the tag, so bump → release → CI `--release` could never pass for a major (CI would have
+stopped the publish). The 2026-10-26 inversion's `--release` case tagged a tree whose row was
+still unstamped, which is why it passed there. Now `check(..., released=<version>)` requires
+`| v<released> |` on `--release` and `| _next release_ |` at bump time. Inverted in a scratch
+clone, exit codes not piped: stamped 0, unstamped 1, no row 1. The pushed `v2.0.0` (at
+`13f125a`, without the fix) was MOVED to the fixed commit on the owner's word ("Move tag to the
+fix") before anything consumed it — see [overview.md](overview.md) § Release 2.0.0.
+
 ⚠️ **Lesson: Rule 3 is all-or-nothing on collection.** A previous tag's test module that imports
 a private helper turns a later rename into "every test regressed". For a patch / minor that
 would refuse the bump for no behaviour reason. Tests that need an internal import it inside the
