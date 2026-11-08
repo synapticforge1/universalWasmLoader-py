@@ -1,0 +1,60 @@
+name: CI
+
+# The gate on every push to main and every pull request: the same `pixi.lock` as a local
+# `pixi run gate` (pixi itself pinned by version + sha256), plus "is api-surface.json
+# current?". Read-only token, no secrets, a tokenless fetch, no `uses:` steps.
+# The version floor and the previous tag's tests are bump / release questions (scripts/
+# bump_version.py, and publish.yml's `compat.py --release`), not asked here.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true # nothing irreversible runs here
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch the commit (tokenless; the repository is public)
+        run: |
+          git init -q .
+          git fetch -q --depth=1 "https://github.com/${{ github.repository }}" "$GITHUB_REF"
+          git checkout -q --detach FETCH_HEAD
+          if [ "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]; then
+            echo "::error::$GITHUB_REF is now $(git rev-parse HEAD), not this run's $GITHUB_SHA (a newer push has its own run)"
+            exit 1
+          fi
+
+      # The pixi that wrote pixi.lock. sha256 = the release's .sha256 file = GitHub's asset
+      # digest = a local hash of the download (three sources, 2026-11-08).
+      - name: Install pixi 0.84.1 (pinned by sha256)
+        run: |
+          url=https://github.com/prefix-dev/pixi/releases/download/v0.84.1/pixi-x86_64-unknown-linux-musl.tar.gz
+          curl -sSfL -o "$RUNNER_TEMP/pixi.tgz" "$url"
+          echo "c81a16595e9e925fac3b12fe50cedbf415619a421ad2b72c1bba2a6ba6c2454a  $RUNNER_TEMP/pixi.tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/pixi-bin"
+          tar -xzf "$RUNNER_TEMP/pixi.tgz" -C "$RUNNER_TEMP/pixi-bin" pixi
+          echo "$RUNNER_TEMP/pixi-bin" >> "$GITHUB_PATH"
+
+      - name: Install the locked environment
+        run: |
+          pixi --version
+          pixi install --locked
+
+      - name: Lint (ruff)
+        run: pixi run lint
+
+      - name: Type check (mypy strict)
+        run: pixi run typecheck
+
+      - name: Tests (pytest)
+        run: pixi run test
+
+      - name: API snapshot is current (compat Rule 1)
+        run: pixi run python scripts/compat.py --snapshot

@@ -1,40 +1,46 @@
 name: Publish
 
-# Manual-only, and TOKEN-FREE. Publishing to PyPI is a deliberate, decoupled step
-# that does NOT fire on a tag push — cut the release first (`pixi run release`
-# tags v<version> and pushes), then run this workflow by hand (Actions tab →
-# Run workflow → "Use workflow from: Tag v<version>", and the same tag as `ref`).
+# Runs on a release-tag push (`pixi run release` tags v<version> and pushes it) and can be
+# re-run by hand (Actions tab → Run workflow → "Use workflow from: Tag v<version>", the same
+# tag as `ref`). Every upload still waits for the protected `pypi` environment's approval.
+# (Manual-only from 2026-06-19 to 2026-11-08; on tag push again by the owner's choice,
+# 2026-11-08, once the gate ran in CI and the upload became idempotent per file.)
 #
-# Auth is PyPI Trusted Publishing via short-lived OIDC — NO long-lived PyPI token
-# is stored in repo secrets. The OIDC exchange is done by hand in `run:` steps:
+# Auth is PyPI Trusted Publishing via short-lived OIDC — NO long-lived PyPI token is stored in
+# repo secrets. The OIDC exchange is done by hand in a `run:` step:
 #   1. ask the runner for an OIDC JWT (audience "pypi"),
 #   2. exchange it at https://pypi.org/_/oidc/mint-token for an ephemeral,
 #      project-scoped PyPI token (valid for minutes),
 #   3. twine upload with that token; it expires on its own, nothing is persisted.
 #
-# TWO JOBS (workspace ledger C30, owner 2026-11-08): `id-token: write` IS the
-# publishing credential, and every step of a job that holds it can mint one. So:
-#   checks  — contents: read, no id-token, a tokenless clone (the repo is public).
-#             Runs EVERYTHING that executes third-party package code: pip installs,
-#             the gate (ruff, mypy, pytest + wasmtime), the compatibility gate (the
-#             previous tag's tests), the build backend, twine check. Uploads dist/.
-#   publish — id-token: write only, in the protected `pypi` environment. No checkout,
-#             no build: it checks the tag is still the commit `checks` built,
-#             downloads dist/, installs only twine (pinned, wheels only), mints the
-#             token and uploads.
-# The commit identity is github.sha (the `pypi` environment admits only `v*` tag
-# runs, so it is the tag's commit), never a job output `checks` could overwrite.
+# TWO JOBS (workspace ledger C30, owner 2026-11-08): `id-token: write` IS the publishing
+# credential, and every step of a job that holds it can mint one. So:
+#   checks  — contents: read, no id-token, a tokenless clone (the repo is public). Runs
+#             EVERYTHING that executes third-party package code, from `pixi.lock` (pixi pinned
+#             by version + sha256): the gate, the compatibility gate (the previous tag's tests),
+#             the build with the locked hatchling, twine check. Uploads dist/.
+#   publish — id-token: write only, in the protected `pypi` environment. No checkout, no build:
+#             it checks the tag is still the commit `checks` built, downloads dist/, asks PyPI
+#             which files it still needs (scripts/pypi_files.py, fetched BY THAT COMMIT, never
+#             from the checks job), installs only twine (pinned, wheels only), mints, uploads.
+# The commit identity is github.sha (a tag run's commit; the `pypi` environment admits only
+# `v*` tags), never a job output `checks` could overwrite.
 #
-# `uses:` — only the two artifact actions, each pinned to a full commit hash (checked
-# to be a commit through the GitHub API, 2026-11-08; both dated 2026-10-07, node24).
-# Under the previous owner any third-party `uses:` caused a startup_failure; the
-# synapticforge1 org's policy accepts hash-pinned actions (loader-dotnet's publish run
-# 42441589123, 2026-11-08). Do not add any other `uses:`, and never pin by tag.
+# Per-file idempotency: a version complete on PyPI uploads nothing (no token is minted); a
+# half-published one (an upload that failed between the sdist and the wheel) gets only its
+# missing files. So a re-run, a manual dispatch after the tag push, or a moved tag is safe.
+#
+# `uses:` — only the two artifact actions, each pinned to a full commit hash (checked to be a
+# commit through the GitHub API, 2026-11-08; both dated 2026-10-07, node24). The org accepts
+# hash-pinned actions (loader-dotnet run 42441589123; this workflow's run 42517168769).
+# Do not add any other `uses:`, and never pin by tag.
 #
 # One-time PyPI setup: a Trusted Publisher matching this workflow —
 #   Owner: synapticforge1   Repository: universalWasmLoader-py   Workflow: publish.yml
 #   Environment: pypi
 on:
+  push:
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       ref:
@@ -43,6 +49,15 @@ on:
         default: ""
 
 permissions: {}
+
+# One run per tag at a time, QUEUED, never cancelled (C30 (2)): a cancel between the upload and
+# its record is worse than a wait, and the second run then finds the files and uploads nothing.
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REF: ${{ github.event.inputs.ref || github.ref_name }}
 
 jobs:
   checks:
@@ -54,8 +69,6 @@ jobs:
       # Full history + tags: the compatibility gate compares against the previous release tag.
       # The submodule gives a pre-gate tag's SPEC.md version (scripts/compat.py spec_at).
       - name: Checkout the tag (tokenless)
-        env:
-          REF: ${{ github.event.inputs.ref }}
         run: |
           case "$REF" in
             v[0-9]*) ;;
@@ -72,41 +85,47 @@ jobs:
             exit 1
           fi
 
-      # ubuntu-latest ships Python 3 + pip (no setup-python action).
-      # twine >= 6.1 / packaging >= 24.2: hatchling emits PEP 639 `License-File`
-      # (Metadata-Version 2.4), which older twine rejects in `twine check`.
-      - name: Install the package, dev tools and build tooling
+      # The pixi that wrote pixi.lock. sha256 = the release's .sha256 file = GitHub's asset
+      # digest = a local hash of the download (three sources, 2026-11-08).
+      - name: Install pixi 0.84.1 (pinned by sha256)
         run: |
-          python3 --version
-          python3 -m pip install --upgrade pip
-          python3 -m pip install --upgrade build "twine>=6.1.0" "packaging>=24.2"
-          python3 -m pip install -e ".[dev]"
+          url=https://github.com/prefix-dev/pixi/releases/download/v0.84.1/pixi-x86_64-unknown-linux-musl.tar.gz
+          curl -sSfL -o "$RUNNER_TEMP/pixi.tgz" "$url"
+          echo "c81a16595e9e925fac3b12fe50cedbf415619a421ad2b72c1bba2a6ba6c2454a  $RUNNER_TEMP/pixi.tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/pixi-bin"
+          tar -xzf "$RUNNER_TEMP/pixi.tgz" -C "$RUNNER_TEMP/pixi-bin" pixi
+          echo "$RUNNER_TEMP/pixi-bin" >> "$GITHUB_PATH"
 
-      # The release gate: the same three commands, in the same order, as the local
-      # `pixi run gate` (lint, typecheck, test). Any failure stops the run.
+      - name: Install the locked environment
+        run: |
+          pixi --version
+          pixi install --locked
+
+      # The release gate: the same commands, in the same order, as `pixi run gate`.
       - name: Lint (ruff)
-        run: python3 -m ruff check src/ tests/ scripts/
+        run: pixi run lint
 
       - name: Type check (mypy strict)
-        run: python3 -m mypy src/ scripts/
+        run: pixi run typecheck
 
       - name: Tests (pytest)
-        run: python3 -m pytest tests/ -v
+        run: pixi run test
 
-      # Repeats the bump script's check on the tagged commit: HEAD = tag v<manifest version>,
-      # the step from the previous tag is at or above the API-surface floor, the snapshot is
-      # fresh, and the previous tag's tests do not regress (patch / minor). Exit 1 stops it.
+      # HEAD = tag v<manifest version>, the step from the previous tag is at or above the
+      # API-surface floor, the snapshot is fresh, a major's Breaking row is stamped, and the
+      # previous tag's tests do not regress (patch / minor). Exit 1 stops the run.
       - name: Compatibility gate (on the tag)
-        run: python3 scripts/compat.py --release
+        run: pixi run python scripts/compat.py --release
 
+      # --no-isolation: build with the LOCKED hatchling from the pixi env, not a fresh one.
       - name: Build sdist + wheel
         run: |
-          python3 -m build
+          pixi run python -m build --no-isolation
           ls -l dist/
           sha256sum dist/*
 
       - name: Check distributions
-        run: python3 -m twine check dist/*
+        run: pixi run python -m twine check dist/*
 
       - name: Hand dist/ to the publish job
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -129,8 +148,6 @@ jobs:
       # The tag must still point at the commit `checks` built (github.sha): a tag moved
       # while the run waited for approval stops the publish here.
       - name: The tag is still the commit that was checked
-        env:
-          REF: ${{ github.event.inputs.ref }}
         run: |
           remote="$(git ls-remote --tags "https://github.com/${{ github.repository }}")"
           tagged="$(printf '%s\n' "$remote" | awk -v r="refs/tags/$REF^{}" '$2 == r { print $1 }')"
@@ -149,17 +166,34 @@ jobs:
           name: dist
           path: dist
 
+      # The planner (stdlib only) is fetched from the repository AT THE CHECKED COMMIT, so no
+      # code from the checks job runs in this job. Only HTTP 404 means "no files yet".
+      - name: Which files does PyPI still need?
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/pypi_files.py" \
+            "https://raw.githubusercontent.com/${{ github.repository }}/$GITHUB_SHA/scripts/pypi_files.py"
+          ls -l dist/
+          sha256sum dist/*
+          python3 "$RUNNER_TEMP/pypi_files.py" universal-wasm-loader "${REF#v}" dist > "$RUNNER_TEMP/upload.txt"
+          echo "to upload:"
+          cat "$RUNNER_TEMP/upload.txt"
+
       # twine is the only third-party code in this job: the version pixi.lock pins for the
       # local path, wheels only (no package runs code at install time), in its own venv.
       - name: Install twine
         run: |
-          ls -l dist/
-          sha256sum dist/*
+          if [ ! -s "$RUNNER_TEMP/upload.txt" ]; then echo "nothing to upload"; exit 0; fi
           python3 -m venv "$RUNNER_TEMP/twine"
           "$RUNNER_TEMP/twine/bin/pip" install --only-binary :all: "twine==7.0.0"
 
       - name: Publish to PyPI (Trusted Publishing via OIDC; no stored token)
         run: |
+          if [ ! -s "$RUNNER_TEMP/upload.txt" ]; then
+            echo "$REF is already complete on PyPI — nothing uploaded, no token minted."
+            exit 0
+          fi
+          mapfile -t files < "$RUNNER_TEMP/upload.txt"
+
           # 1) Ask the Actions runner for an OIDC token scoped to audience "pypi".
           resp="$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=pypi")"
@@ -177,5 +211,5 @@ jobs:
             || { echo "::error::PyPI did not mint a token — is the Trusted Publisher registered for this repo/workflow? Response: $mint"; exit 1; }
           echo "::add-mask::$PYPI_TOKEN"
 
-          # 3) Upload with the ephemeral token. It expires on its own; nothing is stored.
-          TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_TOKEN" "$RUNNER_TEMP/twine/bin/twine" upload dist/*
+          # 3) Upload only the missing files with the ephemeral token. It expires on its own.
+          TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_TOKEN" "$RUNNER_TEMP/twine/bin/twine" upload "${files[@]}"

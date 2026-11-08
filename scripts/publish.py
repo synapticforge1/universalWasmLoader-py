@@ -4,7 +4,8 @@ re-uploaded).
 
 Reads the version from pyproject.toml, requires the matching v<version> tag to
 already exist locally AND on the remote (so you publish exactly what was
-released), runs a fresh `python -m build`, and uploads with `twine`.
+released), runs a fresh `python -m build`, and uploads with `twine` only the files PyPI does
+not have yet (scripts/pypi_files.py).
 
 Prereq order:  scripts/bump_version.py -> scripts/release.py -> scripts/publish.py
 
@@ -20,7 +21,8 @@ Auth-gated: needs a PyPI API token in the environment —
   TWINE_USERNAME=__token__
   TWINE_PASSWORD=pypi-XXXXXXXX        # your project-scoped token
 (or a [pypi] entry in ~/.pypirc). If missing, it prints this and exits without
-uploading. Idempotent: if this version is already on PyPI it reports success.
+uploading. Idempotent per file: a version complete on PyPI uploads nothing and reports
+success; a half-published one (an upload that failed between files) gets only its missing files.
 """
 from __future__ import annotations
 
@@ -28,10 +30,9 @@ import glob
 import os
 import shutil
 import sys
-import urllib.error
-import urllib.request
 from pathlib import Path
 
+import pypi_files
 from _common import ROOT, git, make_runner, python_cmd, read_version, tree_is_dirty, use_pixi
 
 PKG = "universal-wasm-loader"
@@ -90,21 +91,37 @@ def main(argv: list[str]) -> None:
             guard(f"tag {tag} not on {remote} — push it (scripts/release.py) before publishing "
                   "(or --skip-tag-check).")
 
-    # --- Idempotency: is this version already on PyPI? --------------------------
-    try:
-        with urllib.request.urlopen(f"https://pypi.org/pypi/{PKG}/{version}/json", timeout=30):
-            pass
-        print(f"{PKG} {version} is already on PyPI — nothing to do.")
-        print(f"(See https://pypi.org/project/{PKG}/{version}/)")
-        sys.exit(0)
-    except urllib.error.HTTPError as e:
-        if e.code != 404:
-            # Only "not found" means "not published yet"; anything else is not an answer.
-            print(f"error: PyPI answered HTTP {e.code} for {PKG} {version}", file=sys.stderr)
+    # --- Build fresh, check, then ask PyPI which files it still needs -------------
+    # This is a pixi project, so build/publish run inside the pixi env (which
+    # provides `build` + `twine`). Auto-detected when a pixi.toml + the pixi CLI are
+    # present; force with UWL_PY_TOOL=pixi|python.
+    prefix = ["pixi", "run", "python"] if use_pixi() else [python_cmd()]
+    print("+ rm -rf dist", flush=True)
+    if not dry_run:
+        shutil.rmtree(ROOT / "dist", ignore_errors=True)
+    run(*prefix, "-m", "build")
+    # The shell expanded dist/* before the call; under --dry-run there is no dist/ yet.
+    dists = sorted(glob.glob("dist/*", root_dir=ROOT)) or ["dist/*"]
+    run(*prefix, "-m", "twine", "check", *dists)
+
+    # Idempotent per FILE (scripts/pypi_files.py): a version complete on PyPI uploads nothing;
+    # a half-published one uploads only its missing files. Only a 404 means "no files yet".
+    if not dry_run:
+        try:
+            upload, notes = pypi_files.plan(
+                pypi_files.local_files(ROOT / "dist", PKG, version),
+                pypi_files.remote_files(PKG, version),
+            )
+        except (ValueError, pypi_files.PyPIError) as e:
+            print(f"error: {e}", file=sys.stderr)
             sys.exit(1)
-    except urllib.error.URLError as e:
-        print(f"error: could not reach PyPI to check {PKG} {version}: {e.reason}", file=sys.stderr)
-        sys.exit(1)
+        for note in notes:
+            print(note)
+        if not upload:
+            print(f"{PKG} {version} is already complete on PyPI — nothing to upload.")
+            print(f"(See https://pypi.org/project/{PKG}/{version}/)")
+            sys.exit(0)
+        dists = [f"dist/{name}" for name in upload]
 
     # --- Auth gate: need a PyPI token (env or ~/.pypirc) ------------------------
     if not os.environ.get("TWINE_PASSWORD") and not (Path.home() / ".pypirc").is_file():
@@ -118,23 +135,11 @@ def main(argv: list[str]) -> None:
 
     # --- Confirm (irreversible: a PyPI version can never be re-uploaded) --------
     if not assume_yes and not dry_run:
-        reply = input(f"Upload {PKG} {version} to PyPI? This is irreversible. [y/N] ")
+        reply = input(f"Upload {', '.join(dists)} to PyPI? This is irreversible. [y/N] ")
         if reply.strip().lower() not in ("y", "yes"):
             print("Aborted.")
             sys.exit(1)
 
-    # --- Build fresh, then upload -----------------------------------------------
-    # This is a pixi project, so build/publish run inside the pixi env (which
-    # provides `build` + `twine`). Auto-detected when a pixi.toml + the pixi CLI are
-    # present; force with UWL_PY_TOOL=pixi|python.
-    prefix = ["pixi", "run", "python"] if use_pixi() else [python_cmd()]
-    print("+ rm -rf dist", flush=True)
-    if not dry_run:
-        shutil.rmtree(ROOT / "dist", ignore_errors=True)
-    run(*prefix, "-m", "build")
-    # The shell expanded dist/* before the call; under --dry-run there is no dist/ yet.
-    dists = sorted(glob.glob("dist/*", root_dir=ROOT)) or ["dist/*"]
-    run(*prefix, "-m", "twine", "check", *dists)
     run(*prefix, "-m", "twine", "upload", *dists)
 
     if dry_run:

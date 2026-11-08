@@ -40,6 +40,9 @@ mypy = ">=1.10.0"
 # twine >=6.1 / packaging >=24.2: older twine rejects hatchling's PEP 639
 # `License-File` (Metadata-Version 2.4) field in `twine check`.
 [feature.publish.pypi-dependencies]
+# hatchling here (= pyproject's build backend) so CI can build with the LOCKED backend
+# (`python -m build --no-isolation`) instead of a fresh, unpinned one from PyPI.
+hatchling = ">=1.33.0"
 build = ">=1.2.0"
 twine = ">=6.1.0"
 packaging = ">=24.2"
