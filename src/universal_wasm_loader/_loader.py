@@ -9,7 +9,11 @@ from typing import Any
 import wasmtime
 from wasmtime import Engine, FuncType, Linker, Module, Store, WasiConfig
 
-from ._abi import build_component_export_proxy, build_component_import_env
+from ._abi import (
+    build_component_export_proxy,
+    build_component_import_env,
+    resolve_import_callbacks,
+)
 from ._wit_parser import parse_wit
 
 
@@ -43,12 +47,25 @@ def _call_initialize(raw: dict[str, Any], store: Store) -> None:
         init(store)
 
 
-def _make_noop(n_results: int) -> Callable[..., Any]:
-    if n_results == 0:
-        return lambda *_: None
-    if n_results == 1:
-        return lambda *_: 0
-    return lambda *_, n=n_results: [0] * n
+def _read_wit(wasm_path: Path) -> tuple[Path, str] | None:
+    """Read the companion `.wit` (SPEC 4.0.0 §2). None ONLY when it is absent — the path does not
+    end in `.wasm` (no companion name), or the file does not exist — which selects raw exports.
+    Any other read failure, and a `.wit` that is not UTF-8, raises naming the `.wit`."""
+    if wasm_path.suffix.lower() != ".wasm":
+        return None
+    wit_path = wasm_path.with_suffix(".wit")
+    try:
+        data = wit_path.read_bytes()
+    except FileNotFoundError:
+        return None
+    except OSError as e:
+        raise OSError(
+            e.errno, f"wasm_import: cannot read .wit '{wit_path}': {e.strerror or e}"
+        ) from e
+    try:
+        return wit_path, data.decode("utf-8")
+    except UnicodeDecodeError as e:
+        raise ValueError(f"wasm_import: invalid .wit '{wit_path}': not UTF-8 ({e})") from e
 
 
 def _assert_version(raw: dict[str, Any], store: Store, expected: int, path: str) -> None:
@@ -81,13 +98,18 @@ async def wasm_import(
     cleaned, requested_version = _parse_version_suffix(path_str)
     path = Path(cleaned)
 
+    # WIT auto-detection (SPEC 4.0.0 §2): absent -> raw exports; any other failure raises, and
+    # everything the .wit alone can refuse is refused before the .wasm is read.
     wit: dict[str, Any] | None = None
-    wit_path = path.with_suffix(".wit")
-    if wit_path.exists():
+    resolved: dict[str, Callable[..., Any]] = {}
+    found = _read_wit(path)
+    if found is not None:
+        wit_path, wit_src = found
         try:
-            wit = parse_wit(wit_path.read_text(encoding="utf-8"))
-        except Exception:
-            wit = None
+            wit = parse_wit(wit_src)
+        except ValueError as e:
+            raise ValueError(f"wasm_import: invalid .wit '{wit_path}': {e}") from e
+        resolved = resolve_import_callbacks(wit["imports"], host_callbacks)
 
     wasm_bytes = await asyncio.to_thread(path.read_bytes)
     engine = Engine()
@@ -98,8 +120,8 @@ async def wasm_import(
     cabi_realloc_ref: list[wasmtime.Func | None] = [None]
 
     import_env: dict[str, Callable[..., Any]] = {}
-    if wit:
-        import_env = build_component_import_env(wit["imports"], host_callbacks, memory_ref, store)
+    if wit is not None:
+        import_env = build_component_import_env(wit["imports"], resolved, memory_ref, store)
 
     linker = Linker(engine)
 
@@ -112,6 +134,11 @@ async def wasm_import(
     wasi_cfg.inherit_stderr()
     store.set_wasi(wasi_cfg)
 
+    # With a .wit, a function import is bound to its WIT import's wrapper; without one (raw
+    # mode), to the host callback of the same name, called with raw values. An import bound to
+    # nothing fails the load naming every such import — never a stub that returns 0 (it was one
+    # before 2.0.0; -js fails the same load at link time).
+    unbound: list[str] = []
     for imp in module.imports:
         if not isinstance(imp.type, FuncType):
             continue
@@ -123,13 +150,21 @@ async def wasm_import(
         if imp_name is None:
             # Only the module-linking proposal has nameless imports; they cannot be bound by name.
             raise RuntimeError(f"{cleaned!r}: import from {imp.module!r} has no name")
-        if imp_name in import_env:
-            linker.define_func(imp.module, imp_name, ft, import_env[imp_name])
-        elif host_callbacks and imp_name in host_callbacks:
+        if wit is not None:
+            if imp_name in import_env:
+                linker.define_func(imp.module, imp_name, ft, import_env[imp_name])
+            else:
+                unbound.append(f"{imp.module}::{imp_name}")
+        elif host_callbacks and callable(host_callbacks.get(imp_name)):
             cb = host_callbacks[imp_name]
             linker.define_func(imp.module, imp_name, ft, lambda *a, fn=cb: fn(*a))
         else:
-            linker.define_func(imp.module, imp_name, ft, _make_noop(len(ft.results)))
+            unbound.append(f"{imp.module}::{imp_name}")
+    if unbound:
+        where = "the .wit does not declare" if wit is not None else "no host callback for"
+        raise RuntimeError(
+            f"wasm_import: {cleaned!r}: {where} module import(s): {', '.join(unbound)}"
+        )
 
     instance = linker.instantiate(store, module)
     raw = _collect_raw_exports(module, instance, store)
@@ -147,7 +182,7 @@ async def wasm_import(
     if requested_version is not None:
         _assert_version(raw, store, requested_version, cleaned)
 
-    if wit:
+    if wit is not None:
         proxy = build_component_export_proxy(
             raw, wit["exports"], memory_ref, store, cabi_realloc_ref
         )
