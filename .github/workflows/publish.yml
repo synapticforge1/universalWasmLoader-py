@@ -2,75 +2,88 @@ name: Publish
 
 # Manual-only, and TOKEN-FREE. Publishing to PyPI is a deliberate, decoupled step
 # that does NOT fire on a tag push — cut the release first (`pixi run release`
-# tags v<version>, pushes, creates the GitHub Release), then run this workflow by
-# hand (Actions tab → Run workflow) against the release tag.
+# tags v<version> and pushes), then run this workflow by hand (Actions tab →
+# Run workflow → "Use workflow from: Tag v<version>", and the same tag as `ref`).
 #
 # Auth is PyPI Trusted Publishing via short-lived OIDC — NO long-lived PyPI token
-# is stored in repo secrets, so there is nothing to leak. Because the Actions
-# policy may permit only owner-owned actions (under the previous owner, any
-# third-party `uses:` caused a startup_failure), we perform the OIDC exchange by
-# hand in `run:` steps
-# instead of using pypa/gh-action-pypi-publish:
+# is stored in repo secrets. The OIDC exchange is done by hand in `run:` steps:
 #   1. ask the runner for an OIDC JWT (audience "pypi"),
 #   2. exchange it at https://pypi.org/_/oidc/mint-token for an ephemeral,
 #      project-scoped PyPI token (valid for minutes),
 #   3. twine upload with that token; it expires on its own, nothing is persisted.
 #
-# One-time PyPI setup: register a Trusted Publisher (or, before the project
-# exists, a "pending publisher") matching this workflow —
+# TWO JOBS (workspace ledger C30, owner 2026-11-08): `id-token: write` IS the
+# publishing credential, and every step of a job that holds it can mint one. So:
+#   checks  — contents: read, no id-token, a tokenless clone (the repo is public).
+#             Runs EVERYTHING that executes third-party package code: pip installs,
+#             the gate (ruff, mypy, pytest + wasmtime), the compatibility gate (the
+#             previous tag's tests), the build backend, twine check. Uploads dist/.
+#   publish — id-token: write only, in the protected `pypi` environment. No checkout,
+#             no build: it checks the tag is still the commit `checks` built,
+#             downloads dist/, installs only twine (pinned, wheels only), mints the
+#             token and uploads.
+# The commit identity is github.sha (the `pypi` environment admits only `v*` tag
+# runs, so it is the tag's commit), never a job output `checks` could overwrite.
+#
+# `uses:` — only the two artifact actions, each pinned to a full commit hash (checked
+# to be a commit through the GitHub API, 2026-11-08; both dated 2026-10-07, node24).
+# Under the previous owner any third-party `uses:` caused a startup_failure; the
+# synapticforge1 org's policy accepts hash-pinned actions (loader-dotnet's publish run
+# 42441589123, 2026-11-08). Do not add any other `uses:`, and never pin by tag.
+#
+# One-time PyPI setup: a Trusted Publisher matching this workflow —
 #   Owner: synapticforge1   Repository: universalWasmLoader-py   Workflow: publish.yml
 #   Environment: pypi
 on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "Release tag to publish (e.g. v1.0.0)"
+        description: "Release tag to publish (e.g. v2.0.0); run the workflow FROM this tag"
         required: true
         default: ""
 
-jobs:
-  publish:
-    runs-on: ubuntu-latest
-    # Gate every publish on the protected `pypi` environment (required reviewers +
-    # `v*`-tag-only deployment rule). The OIDC token then carries the `pypi`
-    # environment claim, which the PyPI Trusted Publisher is configured to require.
-    environment: pypi
-    permissions:
-      id-token: write   # mint the OIDC token for PyPI Trusted Publishing
-      contents: read    # clone the repo at the release tag
+permissions: {}
 
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      # NOTE: the Actions policy may permit only owner-owned actions. Under the
-      # previous owner any third-party `uses:` (actions/checkout,
-      # actions/setup-python, AND the usual pypa/gh-action-pypi-publish) caused a
-      # `startup_failure` — nothing ran.
-      # Every step here MUST stay a plain `run:` step. Do NOT reintroduce `uses:`.
+      # Tokenless: no credential is written into .git/config for later steps.
       # Full history + tags: the compatibility gate compares against the previous release tag.
       # The submodule gives a pre-gate tag's SPEC.md version (scripts/compat.py spec_at).
-      - name: Checkout
+      - name: Checkout the tag (tokenless)
+        env:
+          REF: ${{ github.event.inputs.ref }}
         run: |
-          git clone --branch "${{ github.event.inputs.ref }}" \
-            "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" .
+          case "$REF" in
+            v[0-9]*) ;;
+            *) echo "::error::ref must be a release tag v<version>, got '$REF'"; exit 1 ;;
+          esac
+          if [ "$GITHUB_REF" != "refs/tags/$REF" ]; then
+            echo "::error::run the workflow FROM tag $REF (Use workflow from: Tag $REF); it runs from $GITHUB_REF"
+            exit 1
+          fi
+          git clone --branch "$REF" "https://github.com/${{ github.repository }}" .
           git submodule update --init
+          if [ "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]; then
+            echo "::error::tag $REF is $(git rev-parse HEAD), not the run's commit $GITHUB_SHA"
+            exit 1
+          fi
 
-      # ubuntu-latest ships Python 3 + pip. Install the build frontend and twine
-      # via `run:` (no setup-python action).
-      - name: Install Python build tooling
+      # ubuntu-latest ships Python 3 + pip (no setup-python action).
+      # twine >= 6.1 / packaging >= 24.2: hatchling emits PEP 639 `License-File`
+      # (Metadata-Version 2.4), which older twine rejects in `twine check`.
+      - name: Install the package, dev tools and build tooling
         run: |
           python3 --version
           python3 -m pip install --upgrade pip
-          # Force a current twine/packaging: hatchling emits PEP 639 `License-File`
-          # (Metadata-Version 2.4); twine < 6.1 / packaging < 24.2 reject that field
-          # in `twine check`. --upgrade also overrides any older preinstalled twine.
           python3 -m pip install --upgrade build "twine>=6.1.0" "packaging>=24.2"
+          python3 -m pip install -e ".[dev]"
 
       # The release gate: the same three commands, in the same order, as the local
-      # `pixi run gate` (lint, typecheck, test). Any failure stops the publish
-      # before anything is built. (Advisory `|| true` removed 2026-10-26: the .wat
-      # harness bug it excused is fixed, drift L8.)
-      - name: Install the package + dev tools
-        run: python3 -m pip install -e ".[dev]"
-
+      # `pixi run gate` (lint, typecheck, test). Any failure stops the run.
       - name: Lint (ruff)
         run: python3 -m ruff check src/ tests/ scripts/
 
@@ -82,7 +95,7 @@ jobs:
 
       # Repeats the bump script's check on the tagged commit: HEAD = tag v<manifest version>,
       # the step from the previous tag is at or above the API-surface floor, the snapshot is
-      # fresh, and the previous tag's tests do not regress. Exit 1 blocks the publish.
+      # fresh, and the previous tag's tests do not regress (patch / minor). Exit 1 stops it.
       - name: Compatibility gate (on the tag)
         run: python3 scripts/compat.py --release
 
@@ -90,13 +103,61 @@ jobs:
         run: |
           python3 -m build
           ls -l dist/
+          sha256sum dist/*
 
       - name: Check distributions
         run: python3 -m twine check dist/*
 
-      # PyPI Trusted Publishing, done by hand so we need no `uses:` and store no
-      # token. GitHub injects ACTIONS_ID_TOKEN_REQUEST_URL / _TOKEN into the job
-      # because `permissions.id-token: write` is set above.
+      - name: Hand dist/ to the publish job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: checks
+    runs-on: ubuntu-latest
+    # Gate every publish on the protected `pypi` environment (required reviewers +
+    # `v*`-tag-only deployment rule). The OIDC token then carries the `pypi`
+    # environment claim, which the PyPI Trusted Publisher is configured to require.
+    environment: pypi
+    permissions:
+      id-token: write # mint the OIDC token for PyPI Trusted Publishing; nothing else
+    steps:
+      # The tag must still point at the commit `checks` built (github.sha): a tag moved
+      # while the run waited for approval stops the publish here.
+      - name: The tag is still the commit that was checked
+        env:
+          REF: ${{ github.event.inputs.ref }}
+        run: |
+          remote="$(git ls-remote --tags "https://github.com/${{ github.repository }}")"
+          tagged="$(printf '%s\n' "$remote" | awk -v r="refs/tags/$REF^{}" '$2 == r { print $1 }')"
+          if [ -z "$tagged" ]; then
+            tagged="$(printf '%s\n' "$remote" | awk -v r="refs/tags/$REF" '$2 == r { print $1 }')"
+          fi
+          if [ "$tagged" != "$GITHUB_SHA" ]; then
+            echo "::error::tag $REF is '${tagged:-absent}' on GitHub, not the checked commit $GITHUB_SHA"
+            exit 1
+          fi
+          echo "tag $REF = $GITHUB_SHA"
+
+      - name: Download dist/
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+
+      # twine is the only third-party code in this job: the version pixi.lock pins for the
+      # local path, wheels only (no package runs code at install time), in its own venv.
+      - name: Install twine
+        run: |
+          ls -l dist/
+          sha256sum dist/*
+          python3 -m venv "$RUNNER_TEMP/twine"
+          "$RUNNER_TEMP/twine/bin/pip" install --only-binary :all: "twine==7.0.0"
+
       - name: Publish to PyPI (Trusted Publishing via OIDC; no stored token)
         run: |
           # 1) Ask the Actions runner for an OIDC token scoped to audience "pypi".
@@ -104,7 +165,7 @@ jobs:
             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=pypi")"
           OIDC_TOKEN="$(printf '%s' "$resp" \
             | python3 -c 'import sys,json; print(json.load(sys.stdin)["value"])')" \
-            || { echo "::error::could not obtain a GitHub OIDC token: $resp"; exit 1; }
+            || { echo "::error::could not obtain a GitHub OIDC token"; exit 1; }
           echo "::add-mask::$OIDC_TOKEN"
           export OIDC_TOKEN
 
@@ -117,4 +178,4 @@ jobs:
           echo "::add-mask::$PYPI_TOKEN"
 
           # 3) Upload with the ephemeral token. It expires on its own; nothing is stored.
-          TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_TOKEN" python3 -m twine upload dist/*
+          TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_TOKEN" "$RUNNER_TEMP/twine/bin/twine" upload dist/*

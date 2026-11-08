@@ -222,8 +222,9 @@ class InstancePool:
         self,
         wasm_path: str | Path,
         host_callbacks: dict[str, Callable[..., Any]] | None = None,
-        size: int = 2,
+        size: int = 4,
     ) -> None:
+        # SPEC §6.2: default 4 instances (it was 2 until 2.0.0).
         self._path = wasm_path
         self._callbacks = host_callbacks
         self._size = size

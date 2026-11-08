@@ -2,7 +2,7 @@
   "spec": "4.0.0",
   "symbols": {
     "InstancePool": "class",
-    "InstancePool.__init__": "method (self, wasm_path: 'str | Path', host_callbacks: 'dict[str, Callable[..., Any]] | None' = None, size: 'int' = 2) -> 'None'",
+    "InstancePool.__init__": "method (self, wasm_path: 'str | Path', host_callbacks: 'dict[str, Callable[..., Any]] | None' = None, size: 'int' = 4) -> 'None'",
     "InstancePool.acquire": "async method (self) -> 'dict[str, Any]'",
     "InstancePool.release": "async method (self, instance: 'dict[str, Any]') -> 'None'",
     "InstancePool.run": "async method (self, fn: 'Callable[[dict[str, Any]], Any]') -> 'Any'",
