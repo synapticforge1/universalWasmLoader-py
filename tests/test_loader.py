@@ -133,6 +133,16 @@ async def test_instance_pool_concurrent(booleans_wasm: Path) -> None:
     assert b is False
 
 
+async def test_instance_pool_default_size_is_4(math_wasm: Path) -> None:
+    # SPEC §6.2: `size` defaults to 4 — four acquires succeed without a release.
+    pool = InstancePool(math_wasm)
+    # A smaller pool would block on the next acquire: fail fast instead of hanging.
+    held = [await asyncio.wait_for(pool.acquire(), timeout=5) for _ in range(4)]
+    assert len({id(m) for m in held}) == 4
+    for m in held:
+        await pool.release(m)
+
+
 async def test_instance_pool_acquire_release(math_wasm: Path) -> None:
     pool = InstancePool(math_wasm, size=1)
     inst = await pool.acquire()
