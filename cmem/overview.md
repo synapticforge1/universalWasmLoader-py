@@ -19,8 +19,8 @@ conformance tests. The JS repo is vendored as a git submodule at
   2026-10-21 (SPEC §10 loader capabilities; first release from the `synapticforge1` org); **1.1.1**
   uploaded 2026-10-26 20:23 UTC (2 files). **Measured 2026-11-08 (PyPI JSON API): PyPI serves ONLY
   `1.1.1`**; `/pypi/universal-wasm-loader/<v>/json` answers **404 for 1.0.0, 1.0.1 and 1.1.0** —
-  they were removed from PyPI, by whom and when is recorded nowhere in this repo or the workspace
-  (open item in [open-work.md](open-work.md)). Brought to parity with the `-c` and `-zig` ports on
+  they were removed from PyPI. **Owner, 2026-11-08: "yes 1.1.1 is the only one on pypi"** —
+  intended. Those three version numbers stay reserved on PyPI forever. Brought to parity with the `-c` and `-zig` ports on
   2026-06-19. Live at <https://pypi.org/project/universal-wasm-loader/>.
 - **Next release: 2.0.0 (SPEC 4.0.0), on local `main` only, NOT bumped / pushed / tagged**
   (2026-11-08; see § "SPEC 4.0.0" below). The bump, push, release and publish are the owner's.
@@ -123,7 +123,8 @@ Idiomatic Python equivalents of the reference loader's `wasmImport` / `createSin
 - **`create_singleton(wasm_path, host_callbacks=None) -> Callable[[], Awaitable[dict]]`**
   — returns an async getter that instantiates once and returns the same instance on every
   call (CLI / DLL pattern). Guarded by an `asyncio.Lock`.
-- **`class InstancePool(wasm_path, host_callbacks=None, size=2)`** — N independent instances
+- **`class InstancePool(wasm_path, host_callbacks=None, size=4)`** (SPEC §6.2; `size=2` until
+  2.0.0, changed `93cc2f3` on the owner's "yes change the instance pool") — N independent instances
   in an `asyncio.Queue`; `await acquire()` / `await release(inst)` / `await run(fn)`
   (acquire → call → release, awaits coroutine results). Server / concurrent-workload pattern.
 
@@ -172,8 +173,8 @@ tests + 8 the old code also met). v1.1.1's 26 behaviour tests pass on the new sr
 tests call 3.0.0 internals (`parse_wit_funcs`; `parse_wit_type("unknown") == "s32"`), not required
 at a major floor. `compat.py`: floor **major** (`SPEC.md v3.0.0 -> v4.0.0`); `bump major --dry-run`
 ALLOWED → 2.0.0. **Version decision: MAJOR, 2.0.0** — not bumped; bump / push / release are the
-owner's. Fixtures unchanged. Known remaining divergence: `InstancePool` default `size=2` (SPEC §6.2
-says 4; pre-existing, not changed — [open-work.md](open-work.md)).
+owner's. Fixtures unchanged. The one remaining divergence, `InstancePool`'s default `size=2` vs
+SPEC §6.2's 4, was fixed the same day (`93cc2f3`, owner) and is in 2.0.0.
 
 ## SPEC conformance status — ✅ ALIGNED TO SPEC 3.0.0 (2026-06-15) — history; 4.0.0 above
 
@@ -306,7 +307,21 @@ exercisable without PyPI failing, so unproven by the run).
    that version already exists, reports success and uploads nothing. Prompts before the irreversible
    upload (`--yes` to skip). `--dry-run` / `--allow-dirty` / `--skip-tag-check` / `--remote`.
 
-### Publish workflow — `.github/workflows/publish.yml` (`run:`-only, MANUAL, TOKEN-FREE)
+### Publish workflow — `.github/workflows/publish.yml` (MANUAL, TOKEN-FREE, TWO JOBS since 2.0.0)
+
+**Current shape (`ae51e95`, 2026-11-08, workspace C30; owner: "yes C30 applies here").** Top-level
+`permissions: {}`. **`checks`** (`contents: read`, no `id-token`, TOKENLESS clone — the repo is
+public) refuses unless the run is FROM tag `ref` and HEAD = `github.sha`, then runs the pip
+installs, the gate, `compat.py --release`, build and `twine check`, and uploads `dist/`.
+**`publish`** (`id-token: write` only, environment `pypi`) has no checkout and no build: `git
+ls-remote --tags` (peeled `^{}` first) must equal `github.sha`, then it downloads `dist/`, installs
+only `twine==7.0.0` (`--only-binary :all:`, own venv) and does the OIDC mint + upload below.
+**`uses:`** only `actions/upload-artifact@cf430e0…` (v7.0.2) and `actions/download-artifact@9000827…`
+(v8.0.2), full commit hashes verified as commits via the GitHub API — the old "never `uses:`" rule
+came from the previous owner's policy; the org accepts hash-pinned actions (loader-dotnet run
+42441589123). Checked locally: YAML parses to the intended graph (Bun.YAML); the tag step against
+GitHub for v1.1.1 — right commit ok, wrong commit / absent tag exit 1. **UNMEASURED on GitHub until
+its first run (2.0.0).** The text below is the history of the single-job form.
 
 - Trigger: **`workflow_dispatch`** with a `ref` input (the release tag). Changed 2026-06-19 from
   `push: tags: v*` so a `release` tag push no longer auto-publishes — publishing stays a single
