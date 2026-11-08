@@ -3,8 +3,10 @@
 The single source of truth for the version is `[project] version` in
 pyproject.toml. This script reads it, tags the current commit `v<version>`,
 pushes the branch and tag to `origin`, and (unless --no-release) creates the
-matching GitHub Release. It does NOT publish to PyPI — that is a separate,
-deliberate step (scripts/publish.py).
+matching GitHub Release. It does not upload to PyPI itself, but pushing the
+v<version> tag STARTS .github/workflows/publish.yml, whose upload waits for the
+`pypi` environment's approval (since 2026-11-08). scripts/publish.py stays as the
+local fallback; both upload only the files PyPI does not have yet.
 
 Usage: pixi run python scripts/release.py [options]
   --notes <text>   Release notes body (default: a generic line).
@@ -129,7 +131,8 @@ def main(argv: list[str]) -> None:
             run("gh", "release", "create", tag, "--title", tag, "--notes", body)
 
     print(f"Done: {tag}")
-    print("To publish to PyPI (separate, deliberate step): pixi run python scripts/publish.py")
+    print("The tag push starts the Publish workflow: approve its `pypi` environment on GitHub "
+          "to upload. (Local fallback: pixi run python scripts/publish.py)")
 
 
 if __name__ == "__main__":

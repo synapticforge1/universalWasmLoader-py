@@ -12,9 +12,10 @@
   Rule 4  a major needs a `| _next release_ |` row under README's "### ⚠️ Breaking Changes".
   Rule 5  an intended surface change re-baselines in its OWN commit (`--write`).
 
-Usage: pixi run python scripts/compat.py [--write | --release]
+Usage: pixi run python scripts/compat.py [--write | --snapshot | --release]
   (no flag)  report: snapshot fresh?, floor vs the last tag, previous-tag tests.
   --write    regenerate api-surface.json (a re-baseline: commit it alone, with the reason).
+  --snapshot CI on every push / PR: only "is api-surface.json current?" (Rule 1).
   --release  CI on the tagged commit: HEAD = tag v<manifest version>, and the step from the
              previous tag is at or above the floor with the tests green. Exit 1 blocks the publish.
 """
@@ -300,6 +301,18 @@ def main(argv: list[str]) -> None:
         SNAPSHOT.write_text(render(surface_of(ROOT / "src", ROOT / "README.md")), encoding="utf-8",
                             newline="\n")
         print(f"wrote {SNAPSHOT.name} — commit it ALONE, with the reason (Rule 5)")
+        return
+
+    if argv[:1] == ["--snapshot"]:
+        # CI on every push / PR: only Rule 1 (the committed snapshot = the code). The floor is
+        # a bump-time question; asking it here would fail all breaking work before its bump.
+        if not SNAPSHOT.is_file() or SNAPSHOT.read_text(encoding="utf-8") != render(
+            surface_of(ROOT / "src", ROOT / "README.md")
+        ):
+            print("compat: REFUSED: api-surface.json is STALE (or missing): re-baseline in its "
+                  "own commit (`pixi run python scripts/compat.py --write`)", file=sys.stderr)
+            sys.exit(1)
+        print("compat: api-surface.json is current")
         return
 
     all_tags = tags()
