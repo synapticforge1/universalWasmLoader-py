@@ -31,6 +31,18 @@ The workspace floor is `../../cmem/working-rules.md`; these are what bite in thi
   source of truth"). A future port replaces its original only after an output diff proves them
   equivalent (same inputs, files + stdout + exit code, inputs that must fail).
 - No heredocs for any content. When the exit code is the measurement, do not pipe it.
+- 🔒 **No GitHub CLI, in CI too** (owner, 2026-11-08; workspace Tooling rule 9, letter H30).
+  What GitHub holds is read with `git ls-remote` and the public REST API; a task only the web UI
+  can do (a Release page, a topic) is an OWNER item, never "blocked". `release.py` prints the
+  Release page as a pre-filled `releases/new` link (`2026-11-09`); no workflow here calls the CLI.
+  If a workflow ever creates a Release by REST: `POST /releases` CREATES a missing tag, so the tag
+  must first exist and peel to `github.sha` (loader-rs's hazard). Re-grep:
+  `git grep -n -w gh -- . ':!cmem' ':!*.md'` → 0 hits.
+- 🔒 **Every Bun-version notation is the latest installed Bun** (owner, 2026-11-09; Tooling rule
+  10, letter H31): `bun --version` on Windows and in WSL — 1.4.4 on both, measured 2026-11-09.
+  This repo pins, installs or requires no Bun (its committed scripts are pixi Python; Bun runs
+  only one-time scratch checks), so the only notation is overview.md's dev-host line; it moves at
+  the next session after a new Bun is installed. Dated measurements stay as measured.
 
 ## Privacy 🔒 (owner, 2026-10-22 / 2026-10-23 / 2026-10-26; workspace letters H18, H22, H28)
 
