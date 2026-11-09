@@ -27,7 +27,9 @@ conformance tests. The JS repo is vendored as a git submodule at
 - **2.0.1 PUBLISHED 2026-11-09** (2 files, 15:15:19–20 UTC, per-version JSON read back) — the
   first release through the tag-triggered workflow; § "Release 2.0.1" below.
 - **2.0.2 PUBLISHED 2026-11-09** (2 files, 15:27:56–57 UTC) with the first GitHub Release page made
-  by CI; § "Release 2.0.2" below. Latest on PyPI and on GitHub.
+  by CI; § "Release 2.0.2" below.
+- **2.0.3 PUBLISHED 2026-11-09** (2 files, 19:23:20–21 UTC) — the time-limited CI scripts (H32);
+  § "Release 2.0.3" below. Latest on PyPI and on GitHub.
 - **Home:** <https://github.com/synapticforge1/universalWasmLoader-py> — the **`synapticforge1`**
   GitHub organization (owner-controlled). Transferred from the personal account `jrmarcum`
   (confirmed via the GitHub API 2026-10-21); see "Repository transfer" below. The upstream JS
@@ -524,6 +526,20 @@ GitHub for v1.1.1 — right commit ok, wrong commit / absent tag exit 1. **Measu
   `twine check` PASSED for both files.
 - **Published:** PyPI serves 1.1.1 (2 files, 2026-10-26 20:23 UTC; the workspace measured it first
   and noted this memory lagged). The run itself (id, step results) was not looked up from here.
+
+### Release `2.0.3` (2026-11-09) — PUBLISHED; the time-limited scripts' first run
+
+- **Owner:** "update the project memory files, commit, push and then release". A **patch**: no
+  library change; it ships `52c754d` (one total time limit per request in `github_release.py` and
+  `pypi_files.py`, H32 / 7.21). Memory was current (`15f2aca`); `main` pushed first, CI green.
+- **Flow:** `bump patch` → `4fd83c6` (floor patch); tag `v2.0.3` local; `compat --release` exit 0
+  (v2.0.2's 117 tests: 117 / 0 on its src and the new one); `release` read back
+  `main = v2.0.3^{} = 4fd83c6`.
+- **Publish run 42682719743** (event `push`): `checks` / `publish` / `release` green. PyPI:
+  `…-2.0.3-py3-none-any.whl` sha256 `a0631a93…`, `…-2.0.3.tar.gz` sha256 `be919f54…`. Release
+  **`v2.0.3`** by `github-actions[bot]`, not a draft, PyPI link + notes `v2.0.2...v2.0.3`,
+  `releases/latest` = v2.0.3; tag unmoved (REST API + `ls-remote`). No reviewer pause (`publish`
+  created as `checks` completed, started 5 s later).
 
 ### Release `2.0.2` (2026-11-09) — PUBLISHED, with a CI-made GitHub Release page
 
