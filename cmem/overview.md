@@ -26,6 +26,8 @@ conformance tests. The JS repo is vendored as a git submodule at
   releases 1.1.1 + 2.0.0, read back) — § "Release 2.0.0" below.
 - **2.0.1 PUBLISHED 2026-11-09** (2 files, 15:15:19–20 UTC, per-version JSON read back) — the
   first release through the tag-triggered workflow; § "Release 2.0.1" below.
+- **2.0.2 PUBLISHED 2026-11-09** (2 files, 15:27:56–57 UTC) with the first GitHub Release page made
+  by CI; § "Release 2.0.2" below. Latest on PyPI and on GitHub.
 - **Home:** <https://github.com/synapticforge1/universalWasmLoader-py> — the **`synapticforge1`**
   GitHub organization (owner-controlled). Transferred from the personal account `jrmarcum`
   (confirmed via the GitHub API 2026-10-21); see "Repository transfer" below. The upstream JS
@@ -370,7 +372,11 @@ exercisable without PyPI failing, so unproven by the run).
   no write; POST 422 → exit 1; malformed tag → no request). Inverted: commit check off → exactly
   the two moved-tag cases red; dry-run guard off → exactly the dry-run case red. Read-only dry
   runs against the real GitHub: `v2.0.1` (annotated) at `4403cc1` → would create, exit 0; at
-  `21e680a` → refused; `v9.9.9` → refused. **UNMEASURED on GitHub until the next tag run.**
+  `21e680a` → refused; `v9.9.9` → refused. **MEASURED on GitHub, 2.0.2 (run 42644832218):** the
+  `release` job created Release **`v2.0.2`** — `github-actions[bot]`, not a draft, published
+  15:28:04Z, body = the PyPI link + generated notes `v2.0.1...v2.0.2`, `releases/latest` =
+  v2.0.2; the tag still peels to `a89b91a` (no tag created or moved), read back through the REST
+  API and `ls-remote`. The re-run path (an existing Release) is covered by the mock tests only.
   Tags up to `v2.0.1` carry the old `publish.yml` (no `release` job), so their pages are web-UI
   owner items ([open-work.md](open-work.md)).
 
@@ -497,6 +503,19 @@ GitHub for v1.1.1 — right commit ok, wrong commit / absent tag exit 1. **Measu
   `twine check` PASSED for both files.
 - **Published:** PyPI serves 1.1.1 (2 files, 2026-10-26 20:23 UTC; the workspace measured it first
   and noted this memory lagged). The run itself (id, step results) was not looked up from here.
+
+### Release `2.0.2` (2026-11-09) — PUBLISHED, with a CI-made GitHub Release page
+
+- **Owner:** "update the project memory files, commit, push then release". A **patch**: no
+  library change; it ships the CI `release` job (`a3bc61e`, pushed in `9f0679f`, CI 42644465666
+  green). Memory was current at `454b770`, so nothing was committed before the release.
+- **Flow:** `pixi run bump patch` → `a89b91a` (floor patch). Tag `v2.0.2` made locally;
+  `compat.py --release` exit 0 there (v2.0.1's 108 tests: 108 / 0 on its src and on the new src).
+  `pixi run release` reused the tag, pushed, read back `main = v2.0.2^{} = a89b91a` (exit 0).
+- **Publish run 42644832218** (event `push`): `checks`, `publish`, `release` green in every step.
+  PyPI: `…-2.0.2-py3-none-any.whl` sha256 `8096e9e0…`, `…-2.0.2.tar.gz` sha256 `178076ea…`.
+  GitHub Release `v2.0.2` by `github-actions[bot]` (see § CI + publish). Still no reviewer pause:
+  `publish` was created the second `checks` completed and started 3 s later.
 
 ### Release `2.0.1` (2026-11-09) — tagged, pushed, PUBLISHED by the tag push
 

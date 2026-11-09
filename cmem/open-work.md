@@ -18,9 +18,9 @@ its settings cannot be read from here; the next tag run shows the effect (a `wai
 
 ## OWNER (web UI, optional): GitHub Release pages for the EXISTING tags
 
-**Measured 2026-11-09** (public REST API `GET /repos/…/releases`): **0 Release pages**, for the
-tags `v1.0.0` … `v2.0.1`. **From the next tag on, `publish.yml`'s `release` job creates the page**
-(2026-11-09, owner). It cannot backfill: a dispatch from an old tag runs THAT tag's
+**Measured 2026-11-09** (public REST API `GET /repos/…/releases`): the only Release page is
+**`v2.0.2`**, made by CI's `release` job (run 42644832218); the tags `v1.0.0` … `v2.0.1` have none.
+**Every new tag gets its page from CI** (2026-11-09, owner). It cannot backfill: a dispatch from an old tag runs THAT tag's
 `publish.yml`, which has no `release` job. Nothing depends on the old pages (the tag is the
 release). If wanted, the versions PyPI serves:
 
