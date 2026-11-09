@@ -8,8 +8,9 @@ The workspace floor is `../../cmem/working-rules.md`; these are what bite in thi
   immutable ([overview.md](overview.md) § release toolchain). **Since 2026-11-08 pushing a `v*`
   tag PUBLISHES to PyPI** (`publish.yml`). It does not wait for a person: 2.0.1's run
   42642679890 (2026-11-09) started `publish` 4 s after `checks`, so the `pypi` environment has
-  no required reviewer (an owner setting, [open-work.md](open-work.md)). Re-pointing a pushed tag
-  re-runs it (the per-file planner then uploads nothing). So a tag push IS a publish. A push to `main` runs
+  no required reviewer, and **the owner decided to keep it so (2026-11-09: "no" to adding an
+  approval step)**. Re-pointing a pushed tag re-runs it (the per-file planner then uploads
+  nothing). So a tag push IS a publish: tag only on the owner's word. A push to `main` runs
   only `ci.yml`.
 - **Read a workflow run back, never assume it:** `api.github.com/repos/synapticforge1/
   universalWasmLoader-py/actions/runs?head_sha=<sha>` (public, no `gh`); a PyPI claim from

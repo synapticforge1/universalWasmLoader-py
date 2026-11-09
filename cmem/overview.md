@@ -56,8 +56,8 @@ through the new publisher.
 **Confirmed since:** the `synapticforge1` Actions policy accepts hash-pinned `uses:` (this repo's
 run 42517168769, 2026-11-08). **The `pypi` environment does NOT pause for a reviewer** (measured
 2026-11-09: 2.0.1's run started `publish` 4 s after `checks`); the 2026-06-19 hardening below
-said it did. Its settings are not readable from here (the environments API needs auth) — an
-owner item in [open-work.md](open-work.md).
+said it did. **Owner, 2026-11-09: "no" to adding a reviewer** — no pause is the decided
+behaviour (re-measured on 2.0.2 and 2.0.3).
 
 The PyPI package name (`universal-wasm-loader`) and the PyPI account are unaffected by the transfer.
 The JSR scope `@jrmarcum/...` used by the JS upstream is a JSR scope, not a GitHub owner, and is
