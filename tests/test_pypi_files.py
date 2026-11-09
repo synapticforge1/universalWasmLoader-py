@@ -5,6 +5,7 @@ import importlib.util
 import io
 import json
 import sys
+import time
 import urllib.error
 from pathlib import Path
 from types import ModuleType
@@ -103,6 +104,20 @@ def test_remote_unreachable_is_an_error(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(pf.urllib.request, "urlopen", fake)
     with pytest.raises(pf.PyPIError, match="could not reach PyPI"):
         pf.remote_files(PKG, VER)
+
+
+def test_remote_has_a_total_time_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 7.21: request to last byte. The stub ignores urlopen's per-socket timeout, as a dripping
+    # server would; only the total limit stops it, and the elapsed bound catches a lost limit.
+    def fake(*_: Any, **__: Any) -> Any:
+        time.sleep(3)
+        return io.BytesIO(b'{"urls": []}')
+
+    monkeypatch.setattr(pf.urllib.request, "urlopen", fake)
+    started = time.monotonic()
+    with pytest.raises(pf.PyPIError, match=r"timed out after 0\.3 s"):
+        pf.remote_files(PKG, VER, timeout=0.3)
+    assert time.monotonic() - started < 2.0
 
 
 def test_remote_200_lists_files(monkeypatch: pytest.MonkeyPatch) -> None:

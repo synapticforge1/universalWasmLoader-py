@@ -253,7 +253,7 @@ Numerics/bool params and returns, and string **params**, are unchanged and remai
   tests (`assert 1 is True`: the raw path returns the i32).
 - `test_wit_parser.py` covers the WIT parser; `test_refusals.py` the SPEC 4.0.0 refusals;
   `test_pypi_files.py` the upload planner.
-- **Baseline 2026-11-09: 117 passed, 0 failed** (`pixi run gate`). Before: 108 (H30), 105
+- **Baseline 2026-11-09: 120 passed, 0 failed** (`pixi run gate`). Before: 117 (CI release job), 108 (H30), 105
   (2026-11-08, also CI run 42518020978), 92 (+ pool size), 91 (SPEC 4.0.0), **2026-10-26: 34
   passed** (`pixi run test`). The old harness bug (drift L8:
   `conftest` compiled `.wat` with `Module.serialize()`, which yields wasmtime's precompiled
@@ -377,10 +377,20 @@ exercisable without PyPI failing, so unproven by the run).
   15:28:04Z, body = the PyPI link + generated notes `v2.0.1...v2.0.2`, `releases/latest` =
   v2.0.2; the tag still peels to `a89b91a` (no tag created or moved), read back through the REST
   API and `ls-remote`. The re-run path (an existing Release) is covered by the mock tests only.
+  **Time limits (2026-11-09, `52c754d`; workspace letter H32 / best-practice 7.21):** every
+  request in `github_release.py` and `pypi_files.py` now has ONE total limit, request to last
+  byte (30 s): `with_limit()` runs the request and the full body read in a worker thread joined
+  with the limit. `urlopen(timeout=)` alone limits each socket operation, so a dripping server
+  never tripped it. The socket timeout stays as a backstop at limit + 5 s: equal values RACED
+  (under load the socket timeout won once and the error carried another message). Tests: header
+  stall + body drip (1 byte / 0.2 s) on a `ThreadingHTTPServer` mock, a stalled PyPI stub; each
+  must fail within 2 s. Mutants: no total limit → exactly those cases red.
   **Referred to the workspace as ledger row C41** (owner, 2026-11-09: "the release page should be
   referred back to the workspace to insure that all projects have this setup"), with a measured
   survey: wazmrt, zilc, zailc, rsxtk, loader-c, -v and -zig have no CI-made pages. The workspace
-  (C41's recipient) letters the other repos; loader-py, as its creator, closes it.
+  (C41's recipient) letters the other repos; loader-py, as its creator, closes it. The workspace
+  filed it as **letter H32** the same day, and the owner decided: only NEW tags get pages (no
+  backfill); loader-c, -v and -zig get CI-made pages too.
   Tags up to `v2.0.1` carry the old `publish.yml` (no `release` job), so their pages are web-UI
   owner items ([open-work.md](open-work.md)).
 
