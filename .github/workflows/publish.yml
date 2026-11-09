@@ -15,7 +15,7 @@ name: Publish
 #      project-scoped PyPI token (valid for minutes),
 #   3. twine upload with that token; it expires on its own, nothing is persisted.
 #
-# TWO JOBS (workspace ledger C30, owner 2026-11-08): `id-token: write` IS the publishing
+# THREE JOBS (workspace ledger C30, owner 2026-11-08): `id-token: write` IS the publishing
 # credential, and every step of a job that holds it can mint one. So:
 #   checks  — contents: read, no id-token, a tokenless clone (the repo is public). Runs
 #             EVERYTHING that executes third-party package code, from `pixi.lock` (pixi pinned
@@ -25,6 +25,12 @@ name: Publish
 #             it checks the tag is still the commit `checks` built, downloads dist/, asks PyPI
 #             which files it still needs (scripts/pypi_files.py, fetched BY THAT COMMIT, never
 #             from the checks job), installs only twine (pinned, wheels only), mints, uploads.
+#   release — contents: write only, after `publish`. No checkout: it fetches
+#             scripts/github_release.py (stdlib only) BY THE CHECKED COMMIT and creates the GitHub
+#             Release page through the REST API with the job's GITHUB_TOKEN — never the GitHub
+#             CLI (workspace H30). The tag must exist and peel to github.sha first (`POST
+#             /releases` would create a missing tag); an existing Release means done (re-runs
+#             are safe); every write is read back. (Added 2026-11-09, owner.)
 # The commit identity is github.sha (a tag run's commit; the `pypi` environment admits only
 # `v*` tags), never a job output `checks` could overwrite.
 #
@@ -215,3 +221,20 @@ jobs:
 
           # 3) Upload only the missing files with the ephemeral token. It expires on its own.
           TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_TOKEN" "$RUNNER_TEMP/twine/bin/twine" upload "${files[@]}"
+
+  # The GitHub Release page, once PyPI has the version. Only the runner's python3 and a stdlib
+  # script fetched by the checked commit run here: no checkout, no package code (C30).
+  release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the Release; nothing else
+    steps:
+      - name: Create the GitHub Release page (REST API; no GitHub CLI)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/github_release.py" \
+            "https://raw.githubusercontent.com/${{ github.repository }}/$GITHUB_SHA/scripts/github_release.py"
+          python3 "$RUNNER_TEMP/github_release.py" \
+            --repo "${{ github.repository }}" --tag "$REF" --sha "$GITHUB_SHA"
