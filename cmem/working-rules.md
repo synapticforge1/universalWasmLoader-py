@@ -40,6 +40,12 @@ The workspace floor is `../../cmem/working-rules.md`; these are what bite in thi
   (`scripts/github_release.py`); `release.py` prints a pre-filled `releases/new` link as the
   fallback. `POST /releases` CREATES a missing tag, so the script first requires that the tag
   exists and peels to `github.sha` (loader-rs's hazard) — keep that check FIRST in any change.
+  🔒 **Letter H32 (owner, 2026-11-09): every tagged release's page is made BY CI, never by hand;
+  only NEW tags get pages (no backfill).** Its order, all kept here: tag exists + peels first;
+  an existing page = done, no write; POST with the registry link, read back (not a draft), peel
+  again; no checkout beside the write token (C30); **every request has its own total time limit,
+  request to last byte** (best-practice 7.21) — in Python that is NOT `urlopen(timeout=)` (per
+  socket operation); use the `with_limit()` deadline, with the socket timeout looser than it.
   Re-grep: `git grep -n -w gh -- . ':!cmem' ':!*.md'` → 0 hits.
 - 🔒 **Every Bun-version notation is the latest installed Bun** (owner, 2026-11-09; Tooling rule
   10, letter H31): `bun --version` on Windows and in WSL — 1.4.4 on both, measured 2026-11-09.
