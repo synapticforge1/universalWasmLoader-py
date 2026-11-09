@@ -300,10 +300,16 @@ exercisable without PyPI failing, so unproven by the run).
    `pyproject.toml` (and the `pixi.toml` mirror) and commits the isolated bump. Guards: clean tree,
    strictly-greater target, no pre-existing tag, valid semver. `--dry-run` / `--no-commit`.
 2. **`scripts/release.py`** — reads the version, verifies a clean tree + a fresh
-   `pixi run python -m build`, tags `v<version>`, pushes branch + tag to `origin`, and creates the matching
-   **GitHub Release** via `gh` (skippable). Idempotent (reuses a tag only if it points at HEAD;
-   skips an existing Release; degrades gracefully if `gh` is missing/unauthenticated — the tag is
-   still pushed). It does not upload itself, but the pushed `v*` tag starts `publish.yml`.
+   `pixi run python -m build`, tags `v<version>`, pushes branch + tag to `origin`, **reads both
+   back with `git ls-remote` (exit 1 unless `main` and `v<version>^{}` are HEAD)**, and prints the
+   GitHub Release page as an **OWNER item**: a pre-filled `releases/new?tag=…&title=…&body=…`
+   link from the remote URL (`--notes` fills the body; `--no-release` prints nothing). It never
+   calls the GitHub CLI (since 2026-11-09, workspace H30; it used to, and skipped the page when the
+   CLI was missing). Idempotent (reuses a tag only if it points at HEAD). Rehearsed on scratch
+   clones with scratch bare remotes: a real run read back `main` = `v9.9.1^{}` = HEAD, exit 0; a
+   remote that dropped the tag after the push → refused, exit 1; `--dry-run` on a github.com URL
+   printed the link (`body=a+%26+b%3F`) and pushed nothing. It does not upload itself, but the
+   pushed `v*` tag starts `publish.yml`.
    `--dry-run` / `--no-release` / `--no-build` / `--remote`.
 3. **`scripts/publish.py`** — the LOCAL fallback PyPI path (CI on the tag is the normal one).
    **Flow:** `pixi run python -m build`, `twine check`, then `scripts/pypi_files.py`'s plan (only
@@ -425,17 +431,18 @@ GitHub for v1.1.1 — right commit ok, wrong commit / absent tag exit 1. **Measu
   OIDC CI path is preferred (no token touches the machine); for local use set
   `$env:TWINE_PASSWORD`/`$env.TWINE_PASSWORD`, never edit the script. The pasted token was rotated.
 - **Tooling on the dev host (as of 2026-06-19):** no Python/pixi/twine (only the Windows Store `python`
-  stub); `nu` 0.113.1 + `git` available, `gh` unauthenticated → **no GitHub Releases created** for
-  `v1.0.0`/`v1.0.1` (tags pushed, which is all the publish needs). To add Release notes later:
-  `gh auth login` then `gh release create v1.0.0` / `v1.0.1`. All script verification on this host
-  was via `--dry-run` (both `.sh` and `.nu`); the real builds/uploads ran on the GitHub runner.
+  stub); `nu` 0.113.1 + `git` available → **no GitHub Release pages** for `v1.0.0`/`v1.0.1`
+  (tags pushed, which is all the publish needs; a Release page is an OWNER web-UI item, see
+  [open-work.md](open-work.md)). All script verification on this host was via `--dry-run` (both
+  `.sh` and `.nu`); the real builds/uploads ran on the GitHub runner.
 - **Tooling on the dev host (re-checked 2026-10-21):** **pixi 0.82.1** (scoop, reinstalled by the
-  owner) + `uv` (scoop); `nu` and `gh` are **absent**, so the `.sh` scripts are the ones run here.
-  The baseline under `pixi run python -m pytest` matches the uv run below (13/13). Without `gh` the publish workflow is dispatched from
-  the GitHub Actions tab (Run workflow → `ref` = the tag; "Use workflow from: Tag v…").
-- **Tooling on the dev host (re-checked 2026-11-08):** pixi **0.84.1**, Bun 1.4.4 (one-time
-  checks), `gh` still **absent** (no GitHub Releases from `release.py`; Actions runs are read
-  through the public API). Since the tag push now starts the publish, no dispatch is needed.
+  owner) + `uv` (scoop); `nu` is absent, so the `.sh` scripts were the ones run here. The baseline
+  under `pixi run python -m pytest` matches the uv run below (13/13). The publish workflow was
+  dispatched from the GitHub Actions tab (Run workflow → `ref` = the tag; "Use workflow from: Tag v…").
+- **Tooling on the dev host (re-checked 2026-11-09):** pixi **0.84.1**; Bun **1.4.4** on Windows
+  and WSL (one-time checks only; the latest installed, workspace H31). No GitHub CLI, by the
+  owner's rule (H30): GitHub is read with `git ls-remote` and the public REST API, Actions runs
+  included. Since the tag push starts the publish, no dispatch is needed.
 
 ### Release `1.1.0` (2026-10-21) — first release from `synapticforge1`
 
@@ -444,8 +451,8 @@ GitHub for v1.1.1 — right commit ok, wrong commit / absent tag exit 1. **Measu
   transfer edits (repo URLs in `pyproject.toml` / README / `.gitmodules` / `publish.yml` comments),
   the first committed `pixi.lock`, and memory.
 - **Flow:** `bash scripts/bump-version.sh minor` (commit `fc847fa`) → `bash scripts/release.sh`
-  (pixi build of sdist + wheel, annotated tag `v1.1.0`, pushed `main` + tag; no GitHub Release —
-  `gh` absent) → local `pixi run python -m twine check dist/*` PASSED → owner ran the `Publish`
+  (pixi build of sdist + wheel, annotated tag `v1.1.0`, pushed `main` + tag; no GitHub Release
+  page — an owner web-UI item) → local `pixi run python -m twine check dist/*` PASSED → owner ran the `Publish`
   workflow from the Actions tab against `v1.1.0` and approved the `pypi` environment.
 - **Verified on PyPI 2026-10-21** (JSON API): latest = `1.1.0`, wheel + sdist uploaded
   22:55 UTC; PyPI's project links now show `github.com/synapticforge1/universalWasmLoader-py`.
@@ -460,7 +467,7 @@ GitHub for v1.1.1 — right commit ok, wrong commit / absent tag exit 1. **Measu
   first real use: floor patch, v1.1.0's tests 13 / 13 on both srcs, 0 regressions → commit
   `e92e2dd` → `pixi run release`: pixi build of sdist (21,175 B) + wheel (8,951 B), annotated tag
   `v1.1.1` → `e92e2dd`, `main` and the tag pushed (read back with `ls-remote`); no GitHub Release
-  (`gh` installed but unauthenticated). Locally on the tag: `compat.py --release` passes,
+  page (an owner web-UI item). Locally on the tag: `compat.py --release` passes,
   `twine check` PASSED for both files.
 - **Published:** PyPI serves 1.1.1 (2 files, 2026-10-26 20:23 UTC; the workspace measured it first
   and noted this memory lagged). The run itself (id, step results) was not looked up from here.
@@ -473,7 +480,8 @@ GitHub for v1.1.1 — right commit ok, wrong commit / absent tag exit 1. **Measu
   92 tests. Floor major: SPEC 3.0.0 → 4.0.0 and `InstancePool.__init__` changed.
 - **Flow:** `pixi run bump major` → `13f125a` (README row stamped `| v2.0.0 |`) → `pixi run
   release`: build (hatchling 1.33.0), annotated tag `v2.0.0` → `13f125a`, `main` + tag pushed
-  (`389a460..13f125a`, read back with `ls-remote`); no GitHub Release (`gh` absent). Then
+  (`389a460..13f125a`, read back with `ls-remote`); no GitHub Release page (an owner web-UI
+  item). Then
   `compat.py --release` on the tag REFUSED (the Rule 4 bug, [compat-gate.md](compat-gate.md)), so
   CI would have stopped the publish. Fixed in `238afa0`; **on the owner's word ("Move tag to the
   fix") `v2.0.0` was MOVED from `13f125a` to the commit carrying this record**, force-pushed with
