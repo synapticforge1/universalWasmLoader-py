@@ -16,12 +16,13 @@ a moved tag. **If an approval step is wanted:** GitHub → Settings → Environm
 Required reviewers (and check its deployment-tag rule, `v*`). The environments API needs auth, so
 its settings cannot be read from here; the next tag run shows the effect (a `waiting` status).
 
-## OWNER (web UI, optional): GitHub Release pages
+## OWNER (web UI, optional): GitHub Release pages for the EXISTING tags
 
 **Measured 2026-11-09** (public REST API `GET /repos/…/releases`): **0 Release pages**, for the
-tags `v1.0.0`, `v1.0.1`, `v1.1.0`, `v1.1.1`, `v2.0.0` (and now `v2.0.1`). Nothing depends on them:
-the tag is the release, and PyPI is fed by `publish.yml`. `scripts/release.py` prints a pre-filled
-page link for each new tag (workspace H30: no GitHub CLI). The versions PyPI serves:
+tags `v1.0.0` … `v2.0.1`. **From the next tag on, `publish.yml`'s `release` job creates the page**
+(2026-11-09, owner). It cannot backfill: a dispatch from an old tag runs THAT tag's
+`publish.yml`, which has no `release` job. Nothing depends on the old pages (the tag is the
+release). If wanted, the versions PyPI serves:
 
 - `v2.0.1`: `https://github.com/synapticforge1/universalWasmLoader-py/releases/new?tag=v2.0.1&title=v2.0.1`
 - `v2.0.0`: `https://github.com/synapticforge1/universalWasmLoader-py/releases/new?tag=v2.0.0&title=v2.0.0`
