@@ -2,29 +2,30 @@
 
 The single source of truth for the version is `[project] version` in
 pyproject.toml. This script reads it, tags the current commit `v<version>`,
-pushes the branch and tag to `origin`, and (unless --no-release) creates the
-matching GitHub Release. It does not upload to PyPI itself, but pushing the
+pushes the branch and tag to `origin`, reads both back with `git ls-remote` (exit
+1 unless they are HEAD), and (unless --no-release) prints the GitHub Release page
+as an OWNER item — a pre-filled web-UI link, never the GitHub CLI (workspace
+H30, owner 2026-11-08). It does not upload to PyPI itself, but pushing the
 v<version> tag STARTS .github/workflows/publish.yml, whose upload waits for the
 `pypi` environment's approval (since 2026-11-08). scripts/publish.py stays as the
 local fallback; both upload only the files PyPI does not have yet.
 
 Usage: pixi run python scripts/release.py [options]
   --notes <text>   Release notes body (default: a generic line).
-  --no-release     Push the tag only; skip creating a GitHub Release.
+  --no-release     Push the tag only; print no Release-page owner item.
   --no-build       Skip the fresh `python -m build` verification.
   --remote <name>  Git remote to push to (default: origin).
   --dry-run        Print what would happen; make no tags/pushes/releases.
   -h, --help       Show this help.
 
-Idempotent: if the tag already exists it is reused (must point at HEAD); an
-existing GitHub Release is left untouched. Degrades gracefully if `gh` is
-missing/unauthenticated (the tag is still pushed).
+Idempotent: if the tag already exists it is reused (must point at HEAD).
 """
 from __future__ import annotations
 
+import re
 import shutil
-import subprocess
 import sys
+import urllib.parse
 
 from _common import (
     ROOT,
@@ -38,6 +39,26 @@ from _common import (
     tree_is_dirty,
     use_pixi,
 )
+
+
+def remote_refs(ls_remote: str) -> dict[str, str]:
+    """`git ls-remote` output -> {ref name: object id} (peeled tags keep their `^{}` suffix)."""
+    refs: dict[str, str] = {}
+    for line in ls_remote.splitlines():
+        oid, _, name = line.partition("\t")
+        if name:
+            refs[name.strip()] = oid.strip()
+    return refs
+
+
+def release_page_url(remote_url: str, tag: str, body: str) -> str | None:
+    """The pre-filled `releases/new` page for a github.com remote; None for any other host."""
+    m = re.fullmatch(r"(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)"
+                     r"([^/\s]+)/([^/\s]+?)(?:\.git)?/?", remote_url)
+    if m is None:
+        return None
+    query = urllib.parse.urlencode({"tag": tag, "title": tag, "body": body})
+    return f"https://github.com/{m.group(1)}/{m.group(2)}/releases/new?{query}"
 
 
 def main(argv: list[str]) -> None:
@@ -112,23 +133,25 @@ def main(argv: list[str]) -> None:
     run("git", "push", remote, branch)
     run("git", "push", remote, tag)
 
+    # --- Read the push back: what GitHub holds, not what we sent -----------------
+    if not dry_run:
+        head = git("rev-parse", "HEAD").stdout.strip()
+        held = remote_refs(git("ls-remote", remote).stdout)
+        got_branch = held.get(f"refs/heads/{branch}", "(missing)")
+        got_tag = held.get(f"refs/tags/{tag}^{{}}", held.get(f"refs/tags/{tag}", "(missing)"))
+        print(f"{remote}: {branch} = {got_branch[:12]}, {tag}^{{}} = {got_tag[:12]}, "
+              f"HEAD = {head[:12]}")
+        if got_branch != head or got_tag != head:
+            fail(f"{remote} does not hold {branch} and {tag} at HEAD after the push")
+
+    # --- The GitHub Release page is an OWNER item (workspace H30: no GitHub CLI) --
     if make_release:
-        if shutil.which("gh") is None:
-            print("warning: gh CLI not found — skipping GitHub Release (tag is pushed).",
-                  file=sys.stderr)
-        elif subprocess.run(["gh", "auth", "status"], capture_output=True).returncode != 0:
-            print("warning: gh is not authenticated — skipping GitHub Release (tag is pushed).",
-                  file=sys.stderr)
-            print(f"         Run 'gh auth login' (or set GH_TOKEN), then: gh release create {tag}",
-                  file=sys.stderr)
-        elif subprocess.run(["gh", "release", "view", tag], capture_output=True).returncode == 0:
-            print(f"GitHub Release {tag} already exists — leaving it untouched.")
-        else:
-            body = notes or (
-                f"Release {tag} of universalWasmLoader-py — "
-                "Python port of the Universal WASM Loader."
-            )
-            run("gh", "release", "create", tag, "--title", tag, "--notes", body)
+        body = notes or (
+            f"Release {tag} of universalWasmLoader-py — Python port of the Universal WASM Loader."
+        )
+        url = release_page_url(git("remote", "get-url", remote).stdout.strip(), tag, body)
+        if url:
+            print(f"OWNER: create the GitHub Release page (web UI; skip if it exists): {url}")
 
     print(f"Done: {tag}")
     print("The tag push starts the Publish workflow: approve its `pypi` environment on GitHub "
