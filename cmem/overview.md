@@ -377,6 +377,10 @@ exercisable without PyPI failing, so unproven by the run).
   15:28:04Z, body = the PyPI link + generated notes `v2.0.1...v2.0.2`, `releases/latest` =
   v2.0.2; the tag still peels to `a89b91a` (no tag created or moved), read back through the REST
   API and `ls-remote`. The re-run path (an existing Release) is covered by the mock tests only.
+  **Referred to the workspace as ledger row C41** (owner, 2026-11-09: "the release page should be
+  referred back to the workspace to insure that all projects have this setup"), with a measured
+  survey: wazmrt, zilc, zailc, rsxtk, loader-c, -v and -zig have no CI-made pages. The workspace
+  (C41's recipient) letters the other repos; loader-py, as its creator, closes it.
   Tags up to `v2.0.1` carry the old `publish.yml` (no `release` job), so their pages are web-UI
   owner items ([open-work.md](open-work.md)).
 
