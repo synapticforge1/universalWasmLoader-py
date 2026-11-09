@@ -8,7 +8,8 @@ publish paths ask this module first and upload ONLY the missing files:
   - `scripts/publish.py` imports it.
 
 Only HTTP 404 means "this version has no files yet"; any other answer is an error, never read as
-"not published" (the masked-HTTP-error class). A file already on PyPI is skipped by NAME. Its
+"not published" (the masked-HTTP-error class). The request carries one 30 s limit, request to
+last byte (workspace best-practice 7.21). A file already on PyPI is skipped by NAME. Its
 sha256 is compared and reported: the build is not byte-reproducible across machines (measured
 2026-11-08: the CI and a local build of the same commit differ), so a re-run that rebuilds is
 expected to differ, and the commit identity is checked elsewhere.
@@ -24,28 +25,66 @@ import hashlib
 import json
 import re
 import sys
+import threading
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
+
+T = TypeVar("T")
 
 
 class PyPIError(Exception):
     """PyPI gave no usable answer (an HTTP status other than 200 / 404, or no connection)."""
 
 
+def with_limit(fn: Callable[[], T], limit: float, what: str) -> T:
+    """Run `fn` (a request AND its full body read) under ONE total time limit — request to last
+    byte (workspace best-practice 7.21). `urlopen(timeout=)` limits each socket operation only, so
+    a server that drips its body would never trip it. On timeout the worker thread is abandoned
+    (a daemon; this is a short-lived process)."""
+    box: dict[str, Any] = {}
+
+    def run() -> None:
+        try:
+            box["value"] = fn()
+        except BaseException as e:  # re-raised in the caller's thread below
+            box["error"] = e
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(limit)
+    if worker.is_alive():
+        raise TimeoutError(f"{what}: timed out after {limit:g} s (request to last byte)")
+    if "error" in box:
+        raise box["error"]
+    return box["value"]  # type: ignore[no-any-return]
+
+
 def remote_files(package: str, version: str, timeout: float = 30) -> dict[str, str] | None:
-    """{filename: sha256} of `version` on PyPI; None when PyPI answers 404 (no files yet)."""
+    """{filename: sha256} of `version` on PyPI; None when PyPI answers 404 (no files yet).
+    `timeout` is the TOTAL limit, request to last byte."""
     url = f"https://pypi.org/pypi/{package}/{version}/json"
+
+    def fetch() -> dict[str, Any] | None:
+        try:
+            # The socket timeout is a backstop only, LOOSER than the total limit, so the total
+            # deadline always decides (equal values race).
+            with urllib.request.urlopen(url, timeout=timeout + 5) as resp:
+                doc: dict[str, Any] = json.load(resp)
+                return doc
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None
+            raise PyPIError(f"PyPI answered HTTP {e.code} for {url}") from e
+
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
-            doc: dict[str, Any] = json.load(resp)
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            return None
-        raise PyPIError(f"PyPI answered HTTP {e.code} for {url}") from e
-    except (urllib.error.URLError, TimeoutError) as e:
+        doc = with_limit(fetch, timeout, url)
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
         raise PyPIError(f"could not reach PyPI for {url}: {e}") from e
+    if doc is None:
+        return None
     return {u["filename"]: u["digests"]["sha256"] for u in doc.get("urls", [])}
 
 

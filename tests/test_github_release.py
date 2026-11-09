@@ -5,8 +5,9 @@ import importlib.util
 import json
 import sys
 import threading
+import time
 from collections.abc import Iterator
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -38,6 +39,7 @@ class Mock:
         self.releases: dict[str, dict[str, Any]] = {}
         self.log: list[tuple[str, str, str | None, Any]] = []
         self.post_status = 201
+        self.stall: str | None = None  # "headers" | "drip": a slow server for the 7.21 cases
 
     def writes(self) -> list[tuple[str, str, str | None, Any]]:
         return [e for e in self.log if e[0] != "GET"]
@@ -61,6 +63,18 @@ def mock() -> Iterator[tuple[Mock, str]]:
 
         def do_GET(self) -> None:  # noqa: N802
             state.log.append(("GET", self.path, self.headers.get("Authorization"), None))
+            if state.stall == "headers":  # nothing at all for 3 s
+                time.sleep(3)
+                return self._send(404)
+            if state.stall == "drip":  # headers now, then 1 byte / 0.2 s: never idle 0.5 s
+                self.send_response(200)
+                self.send_header("Content-Length", "100")
+                self.end_headers()
+                for _ in range(15):
+                    self.wfile.write(b" ")
+                    self.wfile.flush()
+                    time.sleep(0.2)
+                return None
             p = self.path
             if p.startswith(f"/repos/{REPO}/git/ref/tags/"):
                 obj = state.tags.get(p.rsplit("/", 1)[1])
@@ -83,7 +97,8 @@ def mock() -> Iterator[tuple[Mock, str]]:
             state.releases[body["tag_name"]] = rel
             self._send(201, rel)
 
-    server = HTTPServer(("127.0.0.1", 0), Handler)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server.daemon_threads = True  # a stalled handler must not hold the test run
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -156,6 +171,19 @@ def test_a_failed_post_is_a_failure(
     monkeypatch.setenv("GITHUB_API_URL", base)  # main() must hit the mock, never GitHub
     monkeypatch.setenv("GITHUB_TOKEN", "t0k")
     assert gr.main(["--repo", REPO, "--tag", TAG, "--sha", SHA]) == 1  # ApiError -> exit 1
+
+
+@pytest.mark.parametrize("stall", ["headers", "drip"])
+def test_every_request_has_a_total_time_limit(mock: tuple[Mock, str], stall: str) -> None:
+    # 7.21: request to LAST BYTE. "drip" never leaves the socket idle for the limit, so only a
+    # total deadline stops it; the elapsed bound makes a lost limit FAIL instead of hang.
+    state, base = mock
+    state.stall = stall
+    started = time.monotonic()
+    with pytest.raises(gr.ApiError, match=r"timed out after 0\.5 s"):
+        gr.run(REPO, TAG, SHA, False, gr.Api(base, "t0k", limit=0.5))
+    assert time.monotonic() - started < 2.0
+    assert state.writes() == []
 
 
 def test_malformed_tag_sends_no_request(mock: tuple[Mock, str]) -> None:

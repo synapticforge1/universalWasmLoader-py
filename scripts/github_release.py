@@ -10,7 +10,8 @@ Safety, in order (workspace Tooling rule 9's hazard, found by loader-rs):
   2. an existing Release for the tag means done — nothing is changed, so re-runs are safe;
   3. otherwise the Release is created (generated notes, a PyPI link on top), read back, and the
      tag is checked again.
-Only HTTP 404 means "absent"; any other unexpected status is an error.
+Only HTTP 404 means "absent"; any other unexpected status is an error. Every request carries
+its own 30 s limit, request to last byte (workspace best-practice 7.21; letter H32).
 
 Usage: python scripts/github_release.py --repo OWNER/NAME --tag vX.Y.Z --sha COMMIT [--dry-run]
   env GITHUB_TOKEN   required unless --dry-run (reads work without it on a public repo)
@@ -23,25 +24,52 @@ import json
 import os
 import re
 import sys
+import threading
 import urllib.error
 import urllib.request
-from typing import Any
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 PYPI_PROJECT = "universal-wasm-loader"
+T = TypeVar("T")
 
 
 class ApiError(Exception):
     pass
 
 
+def with_limit(fn: Callable[[], T], limit: float, what: str) -> T:
+    """Run `fn` (a request AND its full body read) under ONE total time limit — request to last
+    byte (workspace best-practice 7.21). `urlopen(timeout=)` limits each socket operation only, so
+    a server that drips its body would never trip it. On timeout the worker thread is abandoned
+    (a daemon; this is a short-lived CI process)."""
+    box: dict[str, Any] = {}
+
+    def run() -> None:
+        try:
+            box["value"] = fn()
+        except BaseException as e:  # re-raised in the caller's thread below
+            box["error"] = e
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(limit)
+    if worker.is_alive():
+        raise TimeoutError(f"{what}: timed out after {limit:g} s (request to last byte)")
+    if "error" in box:
+        raise box["error"]
+    return box["value"]  # type: ignore[no-any-return]
+
+
 class Api:
-    def __init__(self, base: str, token: str | None) -> None:
+    def __init__(self, base: str, token: str | None, limit: float = 30.0) -> None:
         self.base = base.rstrip("/")
         self.token = token
+        self.limit = limit
 
     def call(self, method: str, path: str, body: dict[str, Any] | None = None
              ) -> tuple[int, Any]:
-        """(status, JSON) for 2xx and 404; raises ApiError for anything else."""
+        """(status, JSON) for 2xx and 404; ApiError for anything else, a timeout included."""
         req = urllib.request.Request(
             self.base + path,
             method=method,
@@ -54,16 +82,23 @@ class Api:
             req.add_header("Content-Type", "application/json")
         if self.token:
             req.add_header("Authorization", f"Bearer {self.token}")
+
+        def exchange() -> tuple[int, Any]:
+            try:
+                # The socket timeout is a backstop only, set LOOSER than the total limit so the
+                # total deadline always decides (equal values raced; seen once under load).
+                with urllib.request.urlopen(req, timeout=self.limit + 5) as resp:
+                    raw = resp.read()
+                    return resp.status, json.loads(raw) if raw else None
+            except urllib.error.HTTPError as e:
+                if e.code == 404:
+                    return 404, None
+                detail = e.read().decode("utf-8", "replace")[:300]
+                raise ApiError(f"{method} {path}: HTTP {e.code} {detail}") from e
+
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                raw = resp.read()
-                return resp.status, json.loads(raw) if raw else None
-        except urllib.error.HTTPError as e:
-            if e.code == 404:
-                return 404, None
-            detail = e.read().decode("utf-8", "replace")[:300]
-            raise ApiError(f"{method} {path}: HTTP {e.code} {detail}") from e
-        except (urllib.error.URLError, TimeoutError) as e:
+            return with_limit(exchange, self.limit, f"{method} {self.base}{path}")
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
             raise ApiError(f"{method} {path}: {e}") from e
 
 
