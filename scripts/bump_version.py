@@ -5,7 +5,7 @@ sync, commits the one-line change, and stops there — tagging/pushing/releasing
 is scripts/release.py's job. Typical flow:
 
     pixi run python scripts/bump_version.py minor   # 1.0.0 -> 1.1.0, commits the bump
-    pixi run python scripts/release.py              # tags v1.1.0, pushes (the tag starts the publish)
+    pixi run python scripts/release.py              # tags v1.1.0, pushes; the tag publishes
 
 Usage: pixi run python scripts/bump_version.py <major|minor|patch|X.Y.Z> [options]
   major|minor|patch   Increment that semver component (resets lower ones).
