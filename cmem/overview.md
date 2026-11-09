@@ -191,6 +191,13 @@ ALLOWED → 2.0.0. **Version decision: MAJOR, 2.0.0** — not bumped; bump / pus
 owner's. Fixtures unchanged. The one remaining divergence, `InstancePool`'s default `size=2` vs
 SPEC §6.2's 4, was fixed the same day (`93cc2f3`, owner) and is in 2.0.0.
 
+**SPEC 4.0.1 (read 2026-11-09, -js `ac1de68`):** "a clarification, no loader has to change" — a
+§11.1 allowance for a port whose zero-value options type means the default limit (loader-go's
+case). n/a here: no `options`, no http path. This repo still DECLARES 4.0.0 (README + submodule
+`1169ab9`); moving the claim is a README + surface re-baseline + submodule bump, at the owner's
+word (loader-rs moved its claim when its bump script refused on the reference SPEC; this gate
+reads README, so it does not refuse).
+
 ## SPEC conformance status — ✅ ALIGNED TO SPEC 3.0.0 (2026-06-15) — history; 4.0.0 above
 
 The cross-language `SPEC.md` is at **v3.0.0 (2026-06-15)**, a **BREAKING** change to the
