@@ -33,7 +33,8 @@ project memory.
 - `pyproject.toml` `[project] version` — the single source of truth for the package version.
 - `scripts/{bump_version,release,publish}.py` (pixi's Python: `pixi run bump|release|publish`) —
   the release toolchain. Bump (gated) → release (tag + push) → **the `v*` tag push starts
-  `.github/workflows/publish.yml`**, which uploads to PyPI after the owner approves the `pypi`
-  environment; `publish.py` is the local fallback. Both upload only the files PyPI lacks
+  `.github/workflows/publish.yml`**, which uploads to PyPI (it pauses for an approval only if the
+  `pypi` environment requires a reviewer — measured 2026-11-09: it did not pause, so **a tag push
+  publishes**); `publish.py` is the local fallback. Both upload only the files PyPI lacks
   (`scripts/pypi_files.py`). `.github/workflows/ci.yml` runs the gate on every push / PR.
   See [`cmem/overview.md`](cmem/overview.md).

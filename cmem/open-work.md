@@ -4,14 +4,26 @@ Each item: what was found, how (measured / read / reasoned), and what is propose
 is changed without the owner. Close an item by moving its outcome into the topic file it belongs
 to and deleting it here.
 
+## ⚠️ OWNER (web UI): the `pypi` environment has no required reviewer
+
+**Measured 2026-11-09** (public Actions API, run 42642679890, 2.0.1): the `publish` job was
+created at the moment `checks` completed and started 4 s later, so it did not wait for a person.
+Since `publish.yml` runs on every `v*` tag push (owner's choice, 2026-11-08), **pushing a tag
+uploads to PyPI with no approval step**. The memory (from 2026-06-19) and the workflow comments
+said every publish paused for the owner's approval; they are corrected. What still holds: the PyPI
+Trusted Publisher accepts only this repo + `publish.yml` + environment `pypi`, and the run refuses
+a moved tag. **If an approval step is wanted:** GitHub → Settings → Environments → `pypi` →
+Required reviewers (and check its deployment-tag rule, `v*`). The environments API needs auth, so
+its settings cannot be read from here; the next tag run shows the effect (a `waiting` status).
+
 ## OWNER (web UI, optional): GitHub Release pages
 
-**Measured 2026-11-09** (public REST API `GET /repos/…/releases`): **0 Release pages**, for the five
-tags `v1.0.0`, `v1.0.1`, `v1.1.0`, `v1.1.1`, `v2.0.0`. Nothing depends on them: the tag is the
-release, and PyPI is fed by `publish.yml`. Since 2026-11-09 `scripts/release.py` prints a
-pre-filled page link for each new tag (workspace H30: no GitHub CLI). If wanted, the two versions
-PyPI serves:
+**Measured 2026-11-09** (public REST API `GET /repos/…/releases`): **0 Release pages**, for the
+tags `v1.0.0`, `v1.0.1`, `v1.1.0`, `v1.1.1`, `v2.0.0` (and now `v2.0.1`). Nothing depends on them:
+the tag is the release, and PyPI is fed by `publish.yml`. `scripts/release.py` prints a pre-filled
+page link for each new tag (workspace H30: no GitHub CLI). The versions PyPI serves:
 
+- `v2.0.1`: `https://github.com/synapticforge1/universalWasmLoader-py/releases/new?tag=v2.0.1&title=v2.0.1`
 - `v2.0.0`: `https://github.com/synapticforge1/universalWasmLoader-py/releases/new?tag=v2.0.0&title=v2.0.0`
 - `v1.1.1`: `https://github.com/synapticforge1/universalWasmLoader-py/releases/new?tag=v1.1.1&title=v1.1.1`
 

@@ -24,6 +24,8 @@ conformance tests. The JS repo is vendored as a git submodule at
   2026-06-19. Live at <https://pypi.org/project/universal-wasm-loader/>.
 - **2.0.0 (SPEC 4.0.0) PUBLISHED 2026-11-08** (2 files, 19:52:37–38 UTC; PyPI latest = 2.0.0,
   releases 1.1.1 + 2.0.0, read back) — § "Release 2.0.0" below.
+- **2.0.1 PUBLISHED 2026-11-09** (2 files, 15:15:19–20 UTC, per-version JSON read back) — the
+  first release through the tag-triggered workflow; § "Release 2.0.1" below.
 - **Home:** <https://github.com/synapticforge1/universalWasmLoader-py> — the **`synapticforge1`**
   GitHub organization (owner-controlled). Transferred from the personal account `jrmarcum`
   (confirmed via the GitHub API 2026-10-21); see "Repository transfer" below. The upstream JS
@@ -48,9 +50,10 @@ have made `mint-token` refuse. **Proven live 2026-10-21** — the `1.1.0` CI pub
 through the new publisher.
 
 **Confirmed since:** the `synapticforge1` Actions policy accepts hash-pinned `uses:` (this repo's
-run 42517168769, 2026-11-08). The `pypi` environment still pauses each publish for the owner's
-approval (observed by the owner on 2.0.0); its reviewer list and `v*`-tag rule were not read from
-here (the environments API needs auth).
+run 42517168769, 2026-11-08). **The `pypi` environment does NOT pause for a reviewer** (measured
+2026-11-09: 2.0.1's run started `publish` 4 s after `checks`); the 2026-06-19 hardening below
+said it did. Its settings are not readable from here (the environments API needs auth) — an
+owner item in [open-work.md](open-work.md).
 
 The PyPI package name (`universal-wasm-loader`) and the PyPI account are unaffected by the transfer.
 The JSR scope `@jrmarcum/...` used by the JS upstream is a JSR scope, not a GitHub owner, and is
@@ -91,7 +94,7 @@ tests/
 scripts/           # pixi Python: bump_version, release, publish, compat, pypi_files, _common
 .github/workflows/
   ci.yml           # the gate on every push to main / PR (pixi-locked)
-  publish.yml      # on a v* tag push: checks job, then publish job (OIDC, `pypi` approval)
+  publish.yml      # on a v* tag push: checks job, then publish job (OIDC, `pypi` environment)
 upstream/universalwasmloader-js/   # git submodule (reference impl + SPEC.md)
 ```
 
@@ -279,7 +282,7 @@ Numerics/bool params and returns, and string **params**, are unchanged and remai
 `pixi.toml` mirrors it (kept in sync by `bump_version.py`). Three scripts key off it, all **pixi
 Python** (`scripts/*.py` + shared `_common.py`; `pixi run bump|release|publish …`, or
 `pixi run python scripts/<name>.py …`). Since 2026-11-08 the release's tag push STARTS the CI
-publish (which waits for the `pypi` approval); `publish.py` is the local fallback.
+publish (no reviewer pause, measured 2026-11-09); `publish.py` is the local fallback.
 
 **Ported from Bash + Nushell 2026-10-26 (workspace letter H15).** The six `.sh` / `.nu` files were
 replaced only after an equivalence run (one-time, not committed): every case run on the `.sh`
@@ -335,7 +338,7 @@ exercisable without PyPI failing, so unproven by the run).
   push) green in every step; no Publish run on that commit (no tag), as designed.** The pixi-locked
   `checks` job of `publish.yml` shares those steps; its own first run is the next release's.
 - **`publish.yml` now runs on a `v*` tag push** (+ `workflow_dispatch` for re-runs), so `pixi run
-  release` starts it; the upload still waits for the `pypi` environment's approval. Per-tag
+  release` starts it, and it uploads without a reviewer pause (measured 2026-11-09). Per-tag
   `concurrency`, queued, never cancelled. `checks` installs `pixi.lock` (no unpinned pip) and
   builds `--no-isolation` with the locked hatchling 1.33.0 (added to the `publish` feature).
   `publish` fetches `scripts/pypi_files.py` from the repo at `github.sha` and uploads ONLY the
@@ -407,7 +410,8 @@ GitHub for v1.1.1 — right commit ok, wrong commit / absent tag exit 1. **Measu
      **Hardening applied (2026-06-19):** the job runs in a protected GitHub Environment `pypi`
      (`environment: pypi`) with **required reviewers** + a **`v*`-tag-only** deployment rule, and the
      PyPI publisher requires that same `pypi` environment claim — so every publish pauses for a human
-     approval and can only run from a release tag.
+     approval and can only run from a release tag. ⚠️ **No longer true for the reviewer half
+     (measured 2026-11-09, 2.0.1):** no pause — see [open-work.md](open-work.md).
 
 ### Release history & validation (2026-06-19)
 
@@ -471,6 +475,24 @@ GitHub for v1.1.1 — right commit ok, wrong commit / absent tag exit 1. **Measu
   `twine check` PASSED for both files.
 - **Published:** PyPI serves 1.1.1 (2 files, 2026-10-26 20:23 UTC; the workspace measured it first
   and noted this memory lagged). The run itself (id, step results) was not looked up from here.
+
+### Release `2.0.1` (2026-11-09) — tagged, pushed, PUBLISHED by the tag push
+
+- **Owner:** "update the project memory files, commit, push then release". A **patch**: no library
+  change since 2.0.0 — the H30 `release.py` (`ecd736a`), the per-file upload + CI work of
+  2026-11-08 (`eff40fa`, `4548c34`), the bump-hint wording (`05131e6`, `4403cc1`).
+- **Flow:** `main` `12ccd26` pushed first (CI green, `gh` re-grep 0 on `origin/main`); `pixi run
+  bump patch` → `0bd7f14` (floor patch); hint fix `05131e6` + `4403cc1` (the first was committed
+  before its gate result was read — an E501, fixed in the second). Tag `v2.0.1` made locally at
+  `4403cc1`, `compat.py --release` exit 0 there (floor patch; **v2.0.0's 92 tests: 92 / 0 on its
+  src and on the new src** — Rule 3's first run over the full suite). `pixi run release` reused
+  the tag, pushed, and its new read-back printed `main = v2.0.1^{} = 4403cc1` (exit 0) plus the
+  Release-page OWNER link. `pixi install --locked` stays valid across a bump (the lock does not
+  record the package's own version; checked).
+- **Publish run 42642679890** (event `push`, the first tag-triggered run and the first pixi-locked
+  `checks`): every step of both jobs green; `publish` started 4 s after `checks` — **no reviewer
+  pause** (owner item). PyPI: `universal_wasm_loader-2.0.1-py3-none-any.whl` sha256 `87648e85…`,
+  `universal_wasm_loader-2.0.1.tar.gz` sha256 `4b12cb29…`. CI on the same commit green.
 
 ### Release `2.0.0` (2026-11-08) — tagged, pushed, PUBLISHED
 

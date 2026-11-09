@@ -2,7 +2,9 @@ name: Publish
 
 # Runs on a release-tag push (`pixi run release` tags v<version> and pushes it) and can be
 # re-run by hand (Actions tab → Run workflow → "Use workflow from: Tag v<version>", the same
-# tag as `ref`). Every upload still waits for the protected `pypi` environment's approval.
+# tag as `ref`). The upload runs in the `pypi` environment; it pauses for an approval only if
+# that environment requires a reviewer (2.0.1's run 42642679890 did not pause: publish started
+# 4 s after checks — measured 2026-11-09).
 # (Manual-only from 2026-06-19 to 2026-11-08; on tag push again by the owner's choice,
 # 2026-11-08, once the gate ran in CI and the upload became idempotent per file.)
 #
@@ -138,9 +140,9 @@ jobs:
   publish:
     needs: checks
     runs-on: ubuntu-latest
-    # Gate every publish on the protected `pypi` environment (required reviewers +
-    # `v*`-tag-only deployment rule). The OIDC token then carries the `pypi`
-    # environment claim, which the PyPI Trusted Publisher is configured to require.
+    # The `pypi` environment: its settings (reviewers, deployment-tag rule) live in the repo's
+    # GitHub settings, not here — on 2026-11-09 it did not pause for a reviewer. The OIDC token
+    # carries the `pypi` environment claim, which the PyPI Trusted Publisher requires.
     environment: pypi
     permissions:
       id-token: write # mint the OIDC token for PyPI Trusted Publishing; nothing else

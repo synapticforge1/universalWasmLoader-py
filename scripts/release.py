@@ -6,8 +6,9 @@ pushes the branch and tag to `origin`, reads both back with `git ls-remote` (exi
 1 unless they are HEAD), and (unless --no-release) prints the GitHub Release page
 as an OWNER item — a pre-filled web-UI link, never the GitHub CLI (workspace
 H30, owner 2026-11-08). It does not upload to PyPI itself, but pushing the
-v<version> tag STARTS .github/workflows/publish.yml, whose upload waits for the
-`pypi` environment's approval (since 2026-11-08). scripts/publish.py stays as the
+v<version> tag STARTS .github/workflows/publish.yml, which uploads (since
+2026-11-08; it pauses only if the `pypi` environment requires a reviewer — on
+2026-11-09 it did not pause). scripts/publish.py stays as the
 local fallback; both upload only the files PyPI does not have yet.
 
 Usage: pixi run python scripts/release.py [options]
@@ -154,8 +155,9 @@ def main(argv: list[str]) -> None:
             print(f"OWNER: create the GitHub Release page (web UI; skip if it exists): {url}")
 
     print(f"Done: {tag}")
-    print("The tag push starts the Publish workflow: approve its `pypi` environment on GitHub "
-          "to upload. (Local fallback: pixi run python scripts/publish.py)")
+    print("The tag push starts the Publish workflow, which uploads to PyPI (it pauses for an "
+          "approval only if the `pypi` environment requires a reviewer). "
+          "(Local fallback: pixi run python scripts/publish.py)")
 
 
 if __name__ == "__main__":
