@@ -88,13 +88,16 @@ tests/
   test_fixtures.py # fixtures/ = the stamped reference set (sha256 vs fixtures.json)
   test_wit_parser.py
   test_pypi_files.py # scripts/pypi_files.py (urlopen stubbed; no network)
+  test_github_release.py # scripts/github_release.py on an in-process mock API (no network)
+  test_release_script.py # release.py's ls-remote read-back + Release-page link helpers
   fixtures/        # the -js reference set, copied unmodified (H7): {math,booleans,strings,
                    # imports,wasi_io}_50.{wasm,wit}, init_check.{wat,wasm}, fixtures.json
   py_fixtures/     # Python-only: versioned.wat (`version` global, for @N pinning)
-scripts/           # pixi Python: bump_version, release, publish, compat, pypi_files, _common
+scripts/           # pixi Python: bump_version, release, publish, compat, _common; stdlib-only
+                   # pypi_files + github_release (also run by CI with the runner's python3)
 .github/workflows/
   ci.yml           # the gate on every push to main / PR (pixi-locked)
-  publish.yml      # on a v* tag push: checks job, then publish job (OIDC, `pypi` environment)
+  publish.yml      # on a v* tag push: checks → publish (OIDC, `pypi` env) → release (Release page)
 upstream/universalwasmloader-js/   # git submodule (reference impl + SPEC.md)
 ```
 
@@ -248,8 +251,9 @@ Numerics/bool params and returns, and string **params**, are unchanged and remai
   tests (`assert 1 is True`: the raw path returns the i32).
 - `test_wit_parser.py` covers the WIT parser; `test_refusals.py` the SPEC 4.0.0 refusals;
   `test_pypi_files.py` the upload planner.
-- **Baseline 2026-11-08: 105 passed, 0 failed** (`pixi run gate`, and CI run 42518020978 on
-  GitHub). Before: 91 (SPEC 4.0.0), 92 (+ pool size), **2026-10-26: 34 passed** (`pixi run test`). The old harness bug (drift L8:
+- **Baseline 2026-11-09: 117 passed, 0 failed** (`pixi run gate`). Before: 108 (H30), 105
+  (2026-11-08, also CI run 42518020978), 92 (+ pool size), 91 (SPEC 4.0.0), **2026-10-26: 34
+  passed** (`pixi run test`). The old harness bug (drift L8:
   `conftest` compiled `.wat` with `Module.serialize()`, which yields wasmtime's precompiled
   artifact, not a `.wasm`, so 13 tests failed "input was not valid utf-8") is gone: the one
   remaining `.wat` is compiled with `wasmtime.wat2wasm`.
@@ -304,9 +308,10 @@ exercisable without PyPI failing, so unproven by the run).
    strictly-greater target, no pre-existing tag, valid semver. `--dry-run` / `--no-commit`.
 2. **`scripts/release.py`** — reads the version, verifies a clean tree + a fresh
    `pixi run python -m build`, tags `v<version>`, pushes branch + tag to `origin`, **reads both
-   back with `git ls-remote` (exit 1 unless `main` and `v<version>^{}` are HEAD)**, and prints the
-   GitHub Release page as an **OWNER item**: a pre-filled `releases/new?tag=…&title=…&body=…`
-   link from the remote URL (`--notes` fills the body; `--no-release` prints nothing). It never
+   back with `git ls-remote` (exit 1 unless `main` and `v<version>^{}` are HEAD)**, and prints a
+   pre-filled `releases/new?tag=…&title=…&body=…` link from the remote URL as the OWNER fallback
+   (the page itself is created by `publish.yml`'s `release` job since 2026-11-09; `--notes` fills
+   the body; `--no-release` prints nothing). It never
    calls the GitHub CLI (since 2026-11-09, workspace H30; it used to, and skipped the page when the
    CLI was missing). Idempotent (reuses a tag only if it points at HEAD). Rehearsed on scratch
    clones with scratch bare remotes: a real run read back `main` = `v9.9.1^{}` = HEAD, exit 0; a
@@ -351,6 +356,23 @@ exercisable without PyPI failing, so unproven by the run).
   foreign file → exit 1.
 - ⚠️ A force-moved `v*` tag RE-RUNS the publish (workspace H19 note); with the planner such a run
   finds the files and uploads nothing.
+- **The GitHub Release page, from CI (owner, 2026-11-09: "can we add the github release page when
+  we release it via the github actions?").** A third job, `release` (`needs: publish`,
+  `contents: write` only, no checkout): fetches `scripts/github_release.py` (stdlib) by
+  `github.sha` and runs it with the runner's `python3` and the job's `GITHUB_TOKEN` — the REST
+  API, never the GitHub CLI (H30); Python because it is this repo's language, as -dart / -jvm /
+  -dotnet used theirs. Order: the tag must exist and peel (annotated followed) to `github.sha`
+  (`POST /releases` would CREATE a missing tag — loader-rs's hazard); an existing Release → done,
+  no write (re-runs safe); else POST with generated notes + a PyPI link on top, read back, tag
+  re-checked. Proof: `tests/test_github_release.py`, 9 cases on an in-process mock API (create
+  with `Bearer` and no `target_commitish`, read-back order; re-run → no write; annotated tag
+  peeled; missing / moved / annotated-moved tag → refused with no write; dry run and no token →
+  no write; POST 422 → exit 1; malformed tag → no request). Inverted: commit check off → exactly
+  the two moved-tag cases red; dry-run guard off → exactly the dry-run case red. Read-only dry
+  runs against the real GitHub: `v2.0.1` (annotated) at `4403cc1` → would create, exit 0; at
+  `21e680a` → refused; `v9.9.9` → refused. **UNMEASURED on GitHub until the next tag run.**
+  Tags up to `v2.0.1` carry the old `publish.yml` (no `release` job), so their pages are web-UI
+  owner items ([open-work.md](open-work.md)).
 
 ### Publish workflow — `.github/workflows/publish.yml` (TOKEN-FREE, TWO JOBS since 2.0.0)
 

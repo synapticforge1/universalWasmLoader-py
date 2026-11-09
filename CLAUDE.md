@@ -36,5 +36,6 @@ project memory.
   `.github/workflows/publish.yml`**, which uploads to PyPI (it pauses for an approval only if the
   `pypi` environment requires a reviewer — measured 2026-11-09: it did not pause, so **a tag push
   publishes**); `publish.py` is the local fallback. Both upload only the files PyPI lacks
-  (`scripts/pypi_files.py`). `.github/workflows/ci.yml` runs the gate on every push / PR.
+  (`scripts/pypi_files.py`). Its third job creates the GitHub Release page by REST
+  (`scripts/github_release.py`; never the GitHub CLI). `.github/workflows/ci.yml` runs the gate on every push / PR.
   See [`cmem/overview.md`](cmem/overview.md).

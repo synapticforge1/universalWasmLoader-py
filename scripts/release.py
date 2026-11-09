@@ -3,13 +3,16 @@
 The single source of truth for the version is `[project] version` in
 pyproject.toml. This script reads it, tags the current commit `v<version>`,
 pushes the branch and tag to `origin`, reads both back with `git ls-remote` (exit
-1 unless they are HEAD), and (unless --no-release) prints the GitHub Release page
-as an OWNER item — a pre-filled web-UI link, never the GitHub CLI (workspace
-H30, owner 2026-11-08). It does not upload to PyPI itself, but pushing the
-v<version> tag STARTS .github/workflows/publish.yml, which uploads (since
-2026-11-08; it pauses only if the `pypi` environment requires a reviewer — on
-2026-11-09 it did not pause). scripts/publish.py stays as the
-local fallback; both upload only the files PyPI does not have yet.
+1 unless they are HEAD), and (unless --no-release) prints a pre-filled web-UI
+link to the GitHub Release page, as the OWNER fallback: the page itself is
+created by publish.yml's `release` job (scripts/github_release.py, REST API;
+since 2026-11-09). Never the GitHub CLI (workspace H30, owner 2026-11-08).
+
+It does not upload to PyPI itself, but pushing the v<version> tag STARTS
+.github/workflows/publish.yml, which uploads (since 2026-11-08; it pauses only
+if the `pypi` environment requires a reviewer — on 2026-11-09 it did not
+pause). scripts/publish.py stays as the local fallback; both upload only the
+files PyPI does not have yet.
 
 Usage: pixi run python scripts/release.py [options]
   --notes <text>   Release notes body (default: a generic line).
@@ -152,7 +155,9 @@ def main(argv: list[str]) -> None:
         )
         url = release_page_url(git("remote", "get-url", remote).stdout.strip(), tag, body)
         if url:
-            print(f"OWNER: create the GitHub Release page (web UI; skip if it exists): {url}")
+            print("GitHub Release page: created by the Publish workflow's `release` job after "
+                  "the upload.")
+            print(f"OWNER, only if that job fails (web UI; skip if the page exists): {url}")
 
     print(f"Done: {tag}")
     print("The tag push starts the Publish workflow, which uploads to PyPI (it pauses for an "
