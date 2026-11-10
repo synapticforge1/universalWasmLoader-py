@@ -5,13 +5,13 @@ The workspace floor is `../../cmem/working-rules.md`; these are what bite in thi
 ## Git and release
 
 - **Nothing is pushed, tagged or published unless the owner says so.** A published PyPI version is
-  immutable ([overview.md](overview.md) § release toolchain). **Since 2026-11-08 pushing a `v*`
-  tag PUBLISHES to PyPI** (`publish.yml`). It does not wait for a person: 2.0.1's run
-  42642679890 (2026-11-09) started `publish` 4 s after `checks`, so the `pypi` environment has
-  no required reviewer, and **the owner decided to keep it so (2026-11-09: "no" to adding an
-  approval step)**. Re-pointing a pushed tag re-runs it (the per-file planner then uploads
-  nothing). So a tag push IS a publish: tag only on the owner's word. A push to `main` runs
-  only `ci.yml`.
+  immutable ([release.md](release.md)). 🔒 **Since the H33 order (`9c6d3bd`, 2026-11-10) the
+  `pyproject.toml` version line ARMS a release:** a push of `main` whose version has NO tag yet
+  IS a release — CI checks, tags, makes the page and publishes, with no person in between (the
+  `pypi` environment has no reviewer; owner, 2026-11-09: "no" to adding one). So the version line
+  moves only through `pixi run bump <level>` and is pushed only by `pixi run release`, on the
+  owner's word "release". **Nobody makes or pushes a tag by hand any more — CI does** (a published
+  tag never moves). A push of `main` with an already-tagged version runs `checks` only (+ `ci.yml`).
 - **Read a workflow run back, never assume it:** `api.github.com/repos/synapticforge1/
   universalWasmLoader-py/actions/runs?head_sha=<sha>` (public, no `gh`); a PyPI claim from
   `pypi.org/pypi/universal-wasm-loader/<version>/json` (the project-level JSON lags minutes).
