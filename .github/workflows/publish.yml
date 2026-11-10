@@ -253,11 +253,16 @@ jobs:
           python3 -m venv "$RUNNER_TEMP/venv"
           "$RUNNER_TEMP/venv/bin/pip" install --only-binary :all: "twine==7.0.0" "pypi-attestations==0.0.30"
 
+      # pypi_attest.py prints twine's argument list: each dist FOLLOWED BY its attestation. twine
+      # does not look for attestations beside the dists; it sorts the files it is given (2.0.4's
+      # publish failed on exactly this: "Upload with attestations requested, but … has no
+      # associated attestations").
       - name: Sign PEP 740 attestations (Sigstore, the job's OIDC identity)
         run: |
           if [ ! -s "$RUNNER_TEMP/upload.txt" ]; then echo "nothing to sign"; exit 0; fi
           mapfile -t files < "$RUNNER_TEMP/upload.txt"
-          "$RUNNER_TEMP/venv/bin/python" "$RUNNER_TEMP/pypi_attest.py" "${files[@]}"
+          "$RUNNER_TEMP/venv/bin/python" "$RUNNER_TEMP/pypi_attest.py" "${files[@]}" > "$RUNNER_TEMP/twine-args.txt"
+          echo "twine will upload:"; cat "$RUNNER_TEMP/twine-args.txt"
           ls -l dist/
 
       - name: Publish to PyPI (Trusted Publishing via OIDC; no stored token)
@@ -266,7 +271,10 @@ jobs:
             echo "$REF is already complete on PyPI — nothing uploaded, no token minted."
             exit 0
           fi
-          mapfile -t files < "$RUNNER_TEMP/upload.txt"
+          if [ ! -s "$RUNNER_TEMP/twine-args.txt" ]; then
+            echo "::error::no signed upload list (twine-args.txt) — refusing to upload unattested"; exit 1
+          fi
+          mapfile -t args < "$RUNNER_TEMP/twine-args.txt"
 
           # 1) Ask the Actions runner for an OIDC token scoped to audience "pypi".
           resp="$(curl -sS --max-time 30 -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
@@ -285,9 +293,10 @@ jobs:
             || { echo "::error::PyPI did not mint a token — is the Trusted Publisher registered for this repo/workflow? Response: $mint"; exit 1; }
           echo "::add-mask::$PYPI_TOKEN"
 
-          # 3) Upload only the missing files, each with its attestation. The token expires on its own.
+          # 3) Upload only the missing files, each followed by its attestation. The token expires
+          #    on its own.
           TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_TOKEN" \
-            "$RUNNER_TEMP/venv/bin/twine" upload --attestations "${files[@]}"
+            "$RUNNER_TEMP/venv/bin/twine" upload --attestations "${args[@]}"
 
       # H33 U8, FATAL: every built file served by PyPI, each with a PEP 740 provenance from THIS
       # repo's publish.yml in the `pypi` environment (PyPI's integrity API). A green upload alone is

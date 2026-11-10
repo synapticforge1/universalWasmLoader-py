@@ -9,6 +9,8 @@ production trust config, one `<dist>.publish.attestation` beside each dist, whic
 OAuth flow: no ambient credential = exit 1 (a CI job must fail, not wait for a browser).
 
 Usage: python pypi_attest.py <dist-file>...
+  stdout: twine's argument list — each dist, then its attestation (one path per line)
+  stderr: progress
 Exit 0 = every file signed; 1 = refused (no credential, a pre-existing attestation, no file).
 """
 from __future__ import annotations
@@ -62,8 +64,19 @@ def main(argv: list[str]) -> int:
         for dist, att in pairs:
             attestation = Attestation.sign(signer, Distribution.from_file(dist))
             att.write_text(attestation.model_dump_json(), encoding="utf-8")
-            print(f"pypi_attest: signed {dist.name} -> {att.name}", flush=True)
+            print(f"pypi_attest: signed {dist.name} -> {att.name}", file=sys.stderr, flush=True)
+    # stdout = twine's argument list: each dist FOLLOWED BY its attestation. twine does not look
+    # for attestations beside the dists — it sorts the files it is GIVEN (measured 2026-11-10:
+    # given only the dists, `twine upload --attestations` fails "Upload with attestations
+    # requested, but … has no associated attestations" — 2.0.4's failed publish).
+    for line in upload_args(pairs):
+        print(line)
     return 0
+
+
+def upload_args(pairs: list[tuple[Path, Path]]) -> list[str]:
+    """`twine upload --attestations` arguments: every dist, then its attestation."""
+    return [str(p) for dist, att in pairs for p in (dist, att)]
 
 
 if __name__ == "__main__":
