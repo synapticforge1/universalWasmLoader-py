@@ -1,139 +1,205 @@
 name: Publish
 
-# Runs on a release-tag push (`pixi run release` tags v<version> and pushes it) and can be
-# re-run by hand (Actions tab → Run workflow → "Use workflow from: Tag v<version>", the same
-# tag as `ref`). The upload runs in the `pypi` environment; it pauses for an approval only if
-# that environment requires a reviewer (2.0.1's run 42642679890 did not pause: publish started
-# 4 s after checks — measured 2026-11-09).
-# (Manual-only from 2026-06-19 to 2026-11-08; on tag push again by the owner's choice,
-# 2026-11-08, once the gate ran in CI and the upload became idempotent per file.)
+# 🔒 The owner's order, every project (workspace letter H33, D1, 2026-11-10): "the CI to check
+# first, then push the tag, and then create the release page from the tag, then publish the
+# package to the registry". `scripts/release.py` pushes `main` (with its `bump to vX.Y.Z` commit)
+# and NOTHING else — no tag, no upload. This workflow does the rest:
 #
-# Auth is PyPI Trusted Publishing via short-lived OIDC — NO long-lived PyPI token is stored in
-# repo secrets. The OIDC exchange is done by hand in a `run:` step:
-#   1. ask the runner for an OIDC JWT (audience "pypi"),
-#   2. exchange it at https://pypi.org/_/oidc/mint-token for an ephemeral,
-#      project-scoped PyPI token (valid for minutes),
-#   3. twine upload with that token; it expires on its own, nothing is persisted.
+#   push of main  →  checks  →  tag  →  release (the page)  →  dispatch
+#                                                                 │  workflow_dispatch ON THE TAG
+#   that dispatched run  →  build  →  publish (PyPI, OIDC, PEP 740 attestations)
 #
-# THREE JOBS (workspace ledger C30, owner 2026-11-08): `id-token: write` IS the publishing
-# credential, and every step of a job that holds it can mint one. So:
-#   checks  — contents: read, no id-token, a tokenless clone (the repo is public). Runs
-#             EVERYTHING that executes third-party package code, from `pixi.lock` (pixi pinned
-#             by version + sha256): the gate, the compatibility gate (the previous tag's tests),
-#             the build with the locked hatchling, twine check. Uploads dist/.
-#   publish — id-token: write only, in the protected `pypi` environment. No checkout, no build:
-#             it checks the tag is still the commit `checks` built, downloads dist/, asks PyPI
-#             which files it still needs (scripts/pypi_files.py, fetched BY THAT COMMIT, never
-#             from the checks job), installs only twine (pinned, wheels only), mints, uploads.
-#   release — contents: write only, after `publish`. No checkout: it fetches
-#             scripts/github_release.py (stdlib only) BY THE CHECKED COMMIT and creates the GitHub
-#             Release page through the REST API with the job's GITHUB_TOKEN — never the GitHub
-#             CLI (workspace H30). The tag must exist and peel to github.sha first (`POST
-#             /releases` would create a missing tag); an existing Release means done (re-runs
-#             are safe); every write is read back. (Added 2026-11-09, owner.)
-# The commit identity is github.sha (a tag run's commit; the `pypi` environment admits only
-# `v*` tags), never a job output `checks` could overwrite.
+# Why two runs: the `pypi` environment admits only `v*` refs (its deployment policy, read through
+# the public API 2026-11-10), and a tag made with the job's GITHUB_TOKEN starts no run. A
+# GITHUB_TOKEN may start a `workflow_dispatch`, so `dispatch` starts THIS file on the tag — the same
+# workflow file PyPI's Trusted Publisher is registered for (loader-dart's measured shape, 0.3.3).
+# `dispatch` then waits until PyPI lists the version, so the push run's result is the publish's.
 #
-# Per-file idempotency: a version complete on PyPI uploads nothing (no token is minted); a
-# half-published one (an upload that failed between the sdist and the wheel) gets only its
-# missing files. So a re-run, a manual dispatch after the tag push, or a moved tag is safe.
+# "Is this a release?" (checks): the manifest version's tag is absent on GitHub = a NEW release;
+# tagged on THIS commit = a RE-RUN (each job then skips what is done); tagged elsewhere = an
+# ordinary push (tag / release / dispatch skipped). A published tag never moves.
+#
+# Credentials (C30): each job holds only its own permission. checks / build run all package code
+# with `contents: read` and token-less clones; tag / release / dispatch run only a stdlib script
+# fetched BY THE COMMIT, beside their one write permission; publish holds `id-token: write` only,
+# installs only twine + pypi-attestations (pinned, wheels only), and never checks out.
 #
 # `uses:` — only the two artifact actions, each pinned to a full commit hash (checked to be a
-# commit through the GitHub API, 2026-11-08; both dated 2026-10-07, node24). The org accepts
-# hash-pinned actions (loader-dotnet run 42441589123; this workflow's run 42517168769).
-# Do not add any other `uses:`, and never pin by tag.
-#
-# One-time PyPI setup: a Trusted Publisher matching this workflow —
-#   Owner: synapticforge1   Repository: universalWasmLoader-py   Workflow: publish.yml
-#   Environment: pypi
+# commit through the GitHub API, 2026-11-08; both dated 2026-10-07, node24). Never pin by tag.
+# One-time PyPI setup: Trusted Publisher Owner synapticforge1 / Repository universalWasmLoader-py /
+# Workflow publish.yml / Environment pypi. The environment has no required reviewer (owner,
+# 2026-11-09: "no"), so a release is the owner's `release.py` push.
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
   workflow_dispatch:
     inputs:
       ref:
-        description: "Release tag to publish (e.g. v2.0.0); run the workflow FROM this tag"
+        description: "The release tag (vX.Y.Z); run FROM this tag. Normally started by `dispatch`."
         required: true
         default: ""
 
 permissions: {}
 
-# One run per tag at a time, QUEUED, never cancelled (C30 (2)): a cancel between the upload and
-# its record is worse than a wait, and the second run then finds the files and uploads nothing.
+# One run per ref at a time, QUEUED, never cancelled (C30 (2); H33 U9).
 concurrency:
   group: publish-${{ github.ref }}
   cancel-in-progress: false
 
-env:
-  REF: ${{ github.event.inputs.ref || github.ref_name }}
-
 jobs:
+  # ── the run started by a push of main ──────────────────────────────────────────────────────
   checks:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      state: ${{ steps.state.outputs.state }}
+      tag: ${{ steps.state.outputs.tag }}
     steps:
-      # Tokenless: no credential is written into .git/config for later steps.
-      # Full history + tags: the compatibility gate compares against the previous release tag.
-      # The submodule gives a pre-gate tag's SPEC.md version (scripts/compat.py spec_at).
-      - name: Checkout the tag (tokenless)
+      # Token-less (the repo is public): no credential lands in .git/config. Full history + tags:
+      # the compatibility gate compares against the previous release tag.
+      - name: Clone this commit (token-less)
         run: |
-          case "$REF" in
-            v[0-9]*) ;;
-            *) echo "::error::ref must be a release tag v<version>, got '$REF'"; exit 1 ;;
-          esac
-          if [ "$GITHUB_REF" != "refs/tags/$REF" ]; then
-            echo "::error::run the workflow FROM tag $REF (Use workflow from: Tag $REF); it runs from $GITHUB_REF"
-            exit 1
-          fi
-          git clone --branch "$REF" "https://github.com/${{ github.repository }}" .
+          git clone "https://github.com/${{ github.repository }}" .
+          git checkout -q --detach "$GITHUB_SHA"
           git submodule update --init
-          if [ "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]; then
-            echo "::error::tag $REF is $(git rev-parse HEAD), not the run's commit $GITHUB_SHA"
-            exit 1
-          fi
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Is this a release?
+        id: state
+        run: |
+          version="$(sed -n 's/^version = "\([0-9][0-9.]*\)"$/\1/p' pyproject.toml | head -n1)"
+          case "$version" in [0-9]*.[0-9]*.[0-9]*) ;; *) echo "::error::no X.Y.Z version in pyproject.toml"; exit 1 ;; esac
+          tag="v$version"
+          remote="$(git ls-remote --tags "https://github.com/${{ github.repository }}")"
+          tagged="$(printf '%s\n' "$remote" | awk -v r="refs/tags/$tag^{}" '$2 == r { print $1 }')"
+          [ -n "$tagged" ] || tagged="$(printf '%s\n' "$remote" | awk -v r="refs/tags/$tag" '$2 == r { print $1 }')"
+          if [ -z "$tagged" ]; then state=new
+          elif [ "$tagged" = "$GITHUB_SHA" ]; then state=rerun
+          else state=none; fi
+          echo "$tag: $state (tag on ${tagged:-nothing}; this commit $GITHUB_SHA)"
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       # The pixi that wrote pixi.lock. sha256 = the release's .sha256 file = GitHub's asset
       # digest = a local hash of the download (three sources, 2026-11-08).
       - name: Install pixi 0.84.1 (pinned by sha256)
         run: |
           url=https://github.com/prefix-dev/pixi/releases/download/v0.84.1/pixi-x86_64-unknown-linux-musl.tar.gz
-          curl -sSfL -o "$RUNNER_TEMP/pixi.tgz" "$url"
+          curl -sSfL --max-time 120 --retry 3 -o "$RUNNER_TEMP/pixi.tgz" "$url"
           echo "c81a16595e9e925fac3b12fe50cedbf415619a421ad2b72c1bba2a6ba6c2454a  $RUNNER_TEMP/pixi.tgz" | sha256sum -c -
           mkdir -p "$RUNNER_TEMP/pixi-bin"
           tar -xzf "$RUNNER_TEMP/pixi.tgz" -C "$RUNNER_TEMP/pixi-bin" pixi
           echo "$RUNNER_TEMP/pixi-bin" >> "$GITHUB_PATH"
 
       - name: Install the locked environment
-        run: |
-          pixi --version
-          pixi install --locked
+        run: pixi install --locked
 
-      # The release gate: the same commands, in the same order, as `pixi run gate`.
       - name: Lint (ruff)
         run: pixi run lint
-
       - name: Type check (mypy strict)
         run: pixi run typecheck
-
       - name: Tests (pytest)
         run: pixi run test
+      - name: API snapshot is current (compat Rule 1)
+        run: pixi run python scripts/compat.py --snapshot
 
-      # HEAD = tag v<manifest version>, the step from the previous tag is at or above the
-      # API-surface floor, the snapshot is fresh, a major's Breaking row is stamped, and the
-      # previous tag's tests do not regress (patch / minor). Exit 1 stops the run.
-      - name: Compatibility gate (on the tag)
+      # A release only: the floor and the previous tag's tests on the UNTAGGED candidate, and the
+      # publish dry run (a build with the locked hatchling + twine check).
+      - name: Compatibility gate (the release candidate)
+        if: steps.state.outputs.state != 'none'
         run: pixi run python scripts/compat.py --release
-
-      # --no-isolation: build with the LOCKED hatchling from the pixi env, not a fresh one.
-      - name: Build sdist + wheel
+      - name: Build + twine check (the publish dry run)
+        if: steps.state.outputs.state != 'none'
         run: |
           pixi run python -m build --no-isolation
-          ls -l dist/
+          pixi run python -m twine check dist/*
           sha256sum dist/*
 
-      - name: Check distributions
-        run: pixi run python -m twine check dist/*
+  tag:
+    needs: checks
+    if: needs.checks.outputs.state != 'none'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # the tag; nothing else
+    steps:
+      - name: CI's annotated tag (REST API; there = done, elsewhere = refused)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.checks.outputs.tag }}
+        run: |
+          curl -sSfL --max-time 60 --retry 3 -o "$RUNNER_TEMP/github_release.py" \
+            "https://raw.githubusercontent.com/${{ github.repository }}/$GITHUB_SHA/scripts/github_release.py"
+          python3 "$RUNNER_TEMP/github_release.py" tag --repo "${{ github.repository }}" --tag "$TAG" --sha "$GITHUB_SHA"
+
+  release:
+    needs: [checks, tag]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # the page; nothing else
+    steps:
+      - name: The GitHub Release page FROM the tag (REST API; H32's order)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.checks.outputs.tag }}
+        run: |
+          curl -sSfL --max-time 60 --retry 3 -o "$RUNNER_TEMP/github_release.py" \
+            "https://raw.githubusercontent.com/${{ github.repository }}/$GITHUB_SHA/scripts/github_release.py"
+          python3 "$RUNNER_TEMP/github_release.py" page --repo "${{ github.repository }}" --tag "$TAG" --sha "$GITHUB_SHA"
+
+  dispatch:
+    needs: [checks, release]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write # start publish.yml on the tag; nothing else
+    steps:
+      - name: Publish ON THE TAG, then wait until PyPI lists the version (fatal)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.checks.outputs.tag }}
+        run: |
+          curl -sSfL --max-time 60 --retry 3 -o "$RUNNER_TEMP/github_release.py" \
+            "https://raw.githubusercontent.com/${{ github.repository }}/$GITHUB_SHA/scripts/github_release.py"
+          python3 "$RUNNER_TEMP/github_release.py" dispatch --repo "${{ github.repository }}" --tag "$TAG" --sha "$GITHUB_SHA" --wait 1500
+
+  # ── the run dispatched ON THE TAG ──────────────────────────────────────────────────────────
+  build:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Clone the tag (token-less); the run must be ON it
+        env:
+          REF: ${{ github.event.inputs.ref }}
+        run: |
+          case "$REF" in v[0-9]*) ;; *) echo "::error::ref must be a release tag, got '$REF'"; exit 1 ;; esac
+          if [ "$GITHUB_REF" != "refs/tags/$REF" ]; then
+            echo "::error::dispatch this workflow ON tag $REF; it runs on $GITHUB_REF"; exit 1
+          fi
+          git clone --branch "$REF" "https://github.com/${{ github.repository }}" .
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          version="$(sed -n 's/^version = "\([0-9][0-9.]*\)"$/\1/p' pyproject.toml | head -n1)"
+          test "v$version" = "$REF"
+
+      - name: Install pixi 0.84.1 (pinned by sha256)
+        run: |
+          url=https://github.com/prefix-dev/pixi/releases/download/v0.84.1/pixi-x86_64-unknown-linux-musl.tar.gz
+          curl -sSfL --max-time 120 --retry 3 -o "$RUNNER_TEMP/pixi.tgz" "$url"
+          echo "c81a16595e9e925fac3b12fe50cedbf415619a421ad2b72c1bba2a6ba6c2454a  $RUNNER_TEMP/pixi.tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/pixi-bin"
+          tar -xzf "$RUNNER_TEMP/pixi.tgz" -C "$RUNNER_TEMP/pixi-bin" pixi
+          echo "$RUNNER_TEMP/pixi-bin" >> "$GITHUB_PATH"
+
+      # The gate ran in the push run's `checks` on this very commit (the tag exists only after
+      # it was green); this run builds the files the publish job uploads.
+      - name: Build sdist + wheel (the locked hatchling) + twine check
+        run: |
+          pixi install --locked
+          pixi run python -m build --no-isolation
+          pixi run python -m twine check dist/*
+          sha256sum dist/*
 
       - name: Hand dist/ to the publish job
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -144,29 +210,21 @@ jobs:
           retention-days: 7
 
   publish:
-    needs: checks
+    needs: build
     runs-on: ubuntu-latest
-    # The `pypi` environment: its settings (reviewers, deployment-tag rule) live in the repo's
-    # GitHub settings, not here — on 2026-11-09 it did not pause for a reviewer. The OIDC token
-    # carries the `pypi` environment claim, which the PyPI Trusted Publisher requires.
+    # The `pypi` environment (deployment policy: `v*` tags only; no required reviewer — owner,
+    # 2026-11-09). The OIDC token carries its claim, which the PyPI Trusted Publisher requires.
     environment: pypi
     permissions:
-      id-token: write # mint the OIDC token for PyPI Trusted Publishing; nothing else
+      id-token: write # PyPI Trusted Publishing AND the Sigstore signature; nothing else
+    env:
+      REF: ${{ github.event.inputs.ref }}
     steps:
-      # The tag must still point at the commit `checks` built (github.sha): a tag moved
-      # while the run waited for approval stops the publish here.
-      - name: The tag is still the commit that was checked
+      - name: The owner's order holds (the tag = this commit AND its page exists)
         run: |
-          remote="$(git ls-remote --tags "https://github.com/${{ github.repository }}")"
-          tagged="$(printf '%s\n' "$remote" | awk -v r="refs/tags/$REF^{}" '$2 == r { print $1 }')"
-          if [ -z "$tagged" ]; then
-            tagged="$(printf '%s\n' "$remote" | awk -v r="refs/tags/$REF" '$2 == r { print $1 }')"
-          fi
-          if [ "$tagged" != "$GITHUB_SHA" ]; then
-            echo "::error::tag $REF is '${tagged:-absent}' on GitHub, not the checked commit $GITHUB_SHA"
-            exit 1
-          fi
-          echo "tag $REF = $GITHUB_SHA"
+          curl -sSfL --max-time 60 --retry 3 -o "$RUNNER_TEMP/github_release.py" \
+            "https://raw.githubusercontent.com/${{ github.repository }}/$GITHUB_SHA/scripts/github_release.py"
+          python3 "$RUNNER_TEMP/github_release.py" check --repo "${{ github.repository }}" --tag "$REF" --sha "$GITHUB_SHA"
 
       - name: Download dist/
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -174,25 +232,33 @@ jobs:
           name: dist
           path: dist
 
-      # The planner (stdlib only) is fetched from the repository AT THE CHECKED COMMIT, so no
-      # code from the checks job runs in this job. Only HTTP 404 means "no files yet".
+      # Both scripts are fetched BY THE COMMIT (never from the build job, whose output package
+      # code could change). Only HTTP 404 means "no files yet".
       - name: Which files does PyPI still need?
         run: |
-          curl -sSfL -o "$RUNNER_TEMP/pypi_files.py" \
-            "https://raw.githubusercontent.com/${{ github.repository }}/$GITHUB_SHA/scripts/pypi_files.py"
-          ls -l dist/
+          for s in pypi_files pypi_attest; do
+            curl -sSfL --max-time 60 --retry 3 -o "$RUNNER_TEMP/$s.py" \
+              "https://raw.githubusercontent.com/${{ github.repository }}/$GITHUB_SHA/scripts/$s.py"
+          done
           sha256sum dist/*
           python3 "$RUNNER_TEMP/pypi_files.py" universal-wasm-loader "${REF#v}" dist > "$RUNNER_TEMP/upload.txt"
-          echo "to upload:"
-          cat "$RUNNER_TEMP/upload.txt"
+          echo "to upload:"; cat "$RUNNER_TEMP/upload.txt"
 
-      # twine is the only third-party code in this job: the version pixi.lock pins for the
-      # local path, wheels only (no package runs code at install time), in its own venv.
-      - name: Install twine
+      # The only third-party code in this job: twine (pixi.lock's version) and pypi-attestations
+      # 0.0.30 (the latest release older than two weeks on 2026-11-10; 0.0.31 was 8 days old) with
+      # its sigstore — wheels only (no package runs code at install time), in their own venv.
+      - name: Install twine + pypi-attestations (pinned, wheels only)
         run: |
           if [ ! -s "$RUNNER_TEMP/upload.txt" ]; then echo "nothing to upload"; exit 0; fi
-          python3 -m venv "$RUNNER_TEMP/twine"
-          "$RUNNER_TEMP/twine/bin/pip" install --only-binary :all: "twine==7.0.0"
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --only-binary :all: "twine==7.0.0" "pypi-attestations==0.0.30"
+
+      - name: Sign PEP 740 attestations (Sigstore, the job's OIDC identity)
+        run: |
+          if [ ! -s "$RUNNER_TEMP/upload.txt" ]; then echo "nothing to sign"; exit 0; fi
+          mapfile -t files < "$RUNNER_TEMP/upload.txt"
+          "$RUNNER_TEMP/venv/bin/python" "$RUNNER_TEMP/pypi_attest.py" "${files[@]}"
+          ls -l dist/
 
       - name: Publish to PyPI (Trusted Publishing via OIDC; no stored token)
         run: |
@@ -203,7 +269,7 @@ jobs:
           mapfile -t files < "$RUNNER_TEMP/upload.txt"
 
           # 1) Ask the Actions runner for an OIDC token scoped to audience "pypi".
-          resp="$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+          resp="$(curl -sS --max-time 30 -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=pypi")"
           OIDC_TOKEN="$(printf '%s' "$resp" \
             | python3 -c 'import sys,json; print(json.load(sys.stdin)["value"])')" \
@@ -213,28 +279,20 @@ jobs:
 
           # 2) Exchange it at PyPI for a short-lived, project-scoped API token.
           payload="$(python3 -c 'import json,os; print(json.dumps({"token": os.environ["OIDC_TOKEN"]}))')"
-          mint="$(curl -sS -X POST https://pypi.org/_/oidc/mint-token -d "$payload")"
+          mint="$(curl -sS --max-time 30 -X POST https://pypi.org/_/oidc/mint-token -d "$payload")"
           PYPI_TOKEN="$(printf '%s' "$mint" \
             | python3 -c 'import sys,json; print(json.load(sys.stdin)["token"])')" \
             || { echo "::error::PyPI did not mint a token — is the Trusted Publisher registered for this repo/workflow? Response: $mint"; exit 1; }
           echo "::add-mask::$PYPI_TOKEN"
 
-          # 3) Upload only the missing files with the ephemeral token. It expires on its own.
-          TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_TOKEN" "$RUNNER_TEMP/twine/bin/twine" upload "${files[@]}"
+          # 3) Upload only the missing files, each with its attestation. The token expires on its own.
+          TWINE_USERNAME=__token__ TWINE_PASSWORD="$PYPI_TOKEN" \
+            "$RUNNER_TEMP/venv/bin/twine" upload --attestations "${files[@]}"
 
-  # The GitHub Release page, once PyPI has the version. Only the runner's python3 and a stdlib
-  # script fetched by the checked commit run here: no checkout, no package code (C30).
-  release:
-    needs: publish
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write # create the Release; nothing else
-    steps:
-      - name: Create the GitHub Release page (REST API; no GitHub CLI)
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+      # H33 U8, FATAL: every built file served by PyPI, each with a PEP 740 provenance from THIS
+      # repo's publish.yml in the `pypi` environment (PyPI's integrity API). A green upload alone is
+      # not proof.
+      - name: Read back from PyPI (fatal)
         run: |
-          curl -sSfL -o "$RUNNER_TEMP/github_release.py" \
-            "https://raw.githubusercontent.com/${{ github.repository }}/$GITHUB_SHA/scripts/github_release.py"
-          python3 "$RUNNER_TEMP/github_release.py" \
-            --repo "${{ github.repository }}" --tag "$REF" --sha "$GITHUB_SHA"
+          python3 "$RUNNER_TEMP/pypi_files.py" readback universal-wasm-loader "${REF#v}" dist \
+            --repo "${{ github.repository }}" --workflow publish.yml --environment pypi --wait 600

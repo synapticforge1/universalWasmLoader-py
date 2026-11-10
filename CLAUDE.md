@@ -31,11 +31,11 @@ project memory.
 - `tests/` — pytest suite; `tests/fixtures/` is the stamped -js reference set (copy, never edit).
   The gate: `pixi run gate` (lint → typecheck → test, = CI).
 - `pyproject.toml` `[project] version` — the single source of truth for the package version.
-- `scripts/{bump_version,release,publish}.py` (pixi's Python: `pixi run bump|release|publish`) —
-  the release toolchain. Bump (gated) → release (tag + push) → **the `v*` tag push starts
-  `.github/workflows/publish.yml`**, which uploads to PyPI (it pauses for an approval only if the
-  `pypi` environment requires a reviewer — measured 2026-11-09: it did not pause, so **a tag push
-  publishes**); `publish.py` is the local fallback. Both upload only the files PyPI lacks
-  (`scripts/pypi_files.py`). Its third job creates the GitHub Release page by REST
-  (`scripts/github_release.py`; never the GitHub CLI). `.github/workflows/ci.yml` runs the gate on every push / PR.
-  See [`cmem/overview.md`](cmem/overview.md).
+- `scripts/{bump_version,release}.py` (pixi's Python: `pixi run bump <level>` / `pixi run
+  release`) — the release toolchain, in the owner's order (workspace H33): bump (gated, commits
+  `bump to vX.Y.Z`) → release (pushes `main` ONLY, no tag) → `.github/workflows/publish.yml`:
+  CI checks → CI tags → the GitHub Release page → the PyPI publish (dispatched on the tag; OIDC,
+  PEP 740 attestations, a fatal read-back). **A push of `main` whose version is untagged IS a
+  release** (no reviewer pause). Nothing tags or uploads from a workstation. Every release is in
+  [`cmem/release.md`](cmem/release.md) (newest first). `.github/workflows/ci.yml` runs the gate
+  on every push / PR.

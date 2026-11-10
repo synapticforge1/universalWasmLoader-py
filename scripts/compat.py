@@ -16,8 +16,9 @@ Usage: pixi run python scripts/compat.py [--write | --snapshot | --release]
   (no flag)  report: snapshot fresh?, floor vs the last tag, previous-tag tests.
   --write    regenerate api-surface.json (a re-baseline: commit it alone, with the reason).
   --snapshot CI on every push / PR: only "is api-surface.json current?" (Rule 1).
-  --release  CI on the tagged commit: HEAD = tag v<manifest version>, and the step from the
-             previous tag is at or above the floor with the tests green. Exit 1 blocks the publish.
+  --release  CI on the release candidate (H33: before CI tags it) or on its tag (a re-run): the
+             tag v<manifest version> absent or at HEAD (elsewhere: refused), and the step from the
+             previous tag at or above the floor with the tests green. Exit 1 blocks the release.
 """
 from __future__ import annotations
 
@@ -320,8 +321,13 @@ def main(argv: list[str]) -> None:
         version = read_version(ROOT / "pyproject.toml")
         head = git("rev-parse", "HEAD").stdout.strip()
         tag = f"v{version}"
-        if git("rev-parse", "-q", "--verify", f"{tag}^{{commit}}").stdout.strip() != head:
-            sys.exit(f"compat --release: HEAD is not tag {tag} (the manifest version)")
+        # Workspace H33 / D1: CI checks the release candidate BEFORE CI makes its tag. The tag
+        # absent = a new release (the candidate); at HEAD = a re-run; anywhere else = refused (a
+        # published tag never moves).
+        tagged = git("rev-parse", "-q", "--verify", f"{tag}^{{commit}}").stdout.strip()
+        if tagged and tagged != head:
+            sys.exit(f"compat --release: tag {tag} (the manifest version) is on {tagged[:12]}, "
+                     f"not HEAD {head[:12]} — a published tag never moves")
         earlier = [t for t in all_tags if _semver(t[1:]) < _semver(version)]
         since = earlier[-1] if earlier else None
         step = level_between(since[1:], version) if since else "patch"

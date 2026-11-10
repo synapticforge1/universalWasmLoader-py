@@ -1,4 +1,4 @@
-"""Shared helpers for the release toolchain (bump_version.py, release.py, publish.py).
+"""Shared helpers for the release toolchain (bump_version.py, release.py, compat.py).
 
 Run every script with pixi's Python from the repo root:  pixi run python scripts/<name>.py …
 """

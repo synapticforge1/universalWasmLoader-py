@@ -5,13 +5,13 @@ The workspace floor is `../../cmem/working-rules.md`; these are what bite in thi
 ## Git and release
 
 - **Nothing is pushed, tagged or published unless the owner says so.** A published PyPI version is
-  immutable ([overview.md](overview.md) § release toolchain). **Since 2026-11-08 pushing a `v*`
-  tag PUBLISHES to PyPI** (`publish.yml`). It does not wait for a person: 2.0.1's run
-  42642679890 (2026-11-09) started `publish` 4 s after `checks`, so the `pypi` environment has
-  no required reviewer, and **the owner decided to keep it so (2026-11-09: "no" to adding an
-  approval step)**. Re-pointing a pushed tag re-runs it (the per-file planner then uploads
-  nothing). So a tag push IS a publish: tag only on the owner's word. A push to `main` runs
-  only `ci.yml`.
+  immutable ([release.md](release.md)). 🔒 **Since the H33 order (`9c6d3bd`, 2026-11-10) the
+  `pyproject.toml` version line ARMS a release:** a push of `main` whose version has NO tag yet
+  IS a release — CI checks, tags, makes the page and publishes, with no person in between (the
+  `pypi` environment has no reviewer; owner, 2026-11-09: "no" to adding one). So the version line
+  moves only through `pixi run bump <level>` and is pushed only by `pixi run release`, on the
+  owner's word "release". **Nobody makes or pushes a tag by hand any more — CI does** (a published
+  tag never moves). A push of `main` with an already-tagged version runs `checks` only (+ `ci.yml`).
 - **Read a workflow run back, never assume it:** `api.github.com/repos/synapticforge1/
   universalWasmLoader-py/actions/runs?head_sha=<sha>` (public, no `gh`); a PyPI claim from
   `pypi.org/pypi/universal-wasm-loader/<version>/json` (the project-level JSON lags minutes).
@@ -80,3 +80,22 @@ The workspace floor is `../../cmem/working-rules.md`; these are what bite in thi
 - At session start, read `../../cmem/workspace-correspondence.md` (rows addressed to this repo, and
   rows touching the work at hand), then the letter it points to in `../../cmem/handoffs.md`.
 - **A sibling's commit id is looked up in its history map before it is quoted** (workspace H21).
+
+## Owner commands: "commit", "push", "release" (owner, 2026-11-10)
+
+🔒 Written into every project by the workspace session on the owner's direction (2026-11-10:
+"please write that into each project"; workspace `cmem/working-rules.md` Tooling rule 12, letter
+H34). When the owner says:
+
+- **"commit"** — first run "update the project memory files" (re-derive this repo's `cmem/` from
+  its current state), then commit to the branch being worked on. Nothing is pushed.
+- **"push"** — perform "commit", then merge the branch into `main`, then push `main` (and the
+  working branch) to GitHub (`origin`) and read it back with `git ls-remote`.
+- **"release"** — perform "push", then the release process: the workspace's
+  `cmem/release-process.md` §§ 5–8 — CI checks first, then CI pushes the tag, then the GitHub
+  Release page from the tag, then the publish to the registry — recorded in `cmem/release.md`
+  § "Release History" (newest first, a summary of what changed). The level (patch / minor /
+  major) is the owner's: ask if it was not given.
+
+Each command includes the one before it, and none goes further than its own word (a "commit"
+never pushes, a "push" never releases). This repo's own gate and merge rules apply at each step.
