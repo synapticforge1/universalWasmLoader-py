@@ -51,6 +51,24 @@ the tag, the attestation signature, the provenance read-back.
 
 ## Release History (newest first)
 
+### 2.0.4 — 2026-11-10 · patch · TAGGED, page made, NEVER PUBLISHED (superseded by 2.0.5)
+
+**What it was:** the first release in the owner's order (H33): the release tooling and CI only (no
+library change). **What happened:** `bump to v2.0.4` (`179c405`); `release.py` pushed `main` only,
+with no tag. The push run **42922433222**: `checks` ✓ → `tag` ✓ (CI's annotated `v2.0.4`, object
+`6a6fb45`, peels to `179c405`) → `release` ✓ (page by `github-actions[bot]`, 23:20:31Z) →
+`dispatch` (started the publish on the tag, then timed out waiting for PyPI, as designed). The
+dispatched run **42922568285**: `build` ✓ → `publish` FAILED at "Publish to PyPI". The order
+check, the plan, the install and the Sigstore signing all passed; PyPI got nothing.
+**Cause (mine, measured with the real twine 7.0.0):** `twine upload --attestations` does not look
+for attestations beside the dists. It sorts the files it is GIVEN, and the step passed the dists
+only: "Upload with attestations requested, but … has no associated attestations". Fixed in
+`a8c950d`: `pypi_attest.py` prints twine's argument list (each dist, then its attestation), and a
+regression test runs the real twine. **Why not a re-run:** the dispatched run uses the TAG's
+workflow and scripts, which hold the bug, and a published tag never moves. So the fix ships as
+2.0.5. **Owner, 2026-11-10:** "Release 2.0.5 now"; leave the `v2.0.4` page and record why. The
+tag `v2.0.4` and its page stay; PyPI never has 2.0.4, and its page's PyPI link answers 404.
+
 ### 2.0.3 — 2026-11-09 · patch · time limits in the CI scripts
 
 **What changed:** no library change. `52c754d`: every request in `scripts/github_release.py` and
