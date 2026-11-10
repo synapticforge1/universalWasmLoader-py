@@ -5,8 +5,10 @@ interactive flow)."""
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 import types
+import zipfile
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -108,7 +110,9 @@ def test_no_ambient_credential_refuses_and_writes_nothing(
     assert not (tmp_path / f"{WHL}.publish.attestation").exists()
 
 
-def test_signs_each_file_beside_it(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_signs_each_file_beside_it_and_prints_twines_arguments(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     signed = _fake_modules(monkeypatch, credential="ambient-oidc")
     sdist = "universal_wasm_loader-2.0.4.tar.gz"
     for name in (WHL, sdist):
@@ -116,3 +120,48 @@ def test_signs_each_file_beside_it(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     assert pa.main([str(tmp_path / WHL), str(tmp_path / sdist)]) == 0
     assert signed == [WHL, sdist]
     assert (tmp_path / f"{sdist}.publish.attestation").read_text() == f'{{"signed": "{sdist}"}}'
+    # stdout is ONLY twine's argument list: each dist, then its attestation
+    assert capsys.readouterr().out.split() == [
+        str(tmp_path / WHL), str(tmp_path / f"{WHL}.publish.attestation"),
+        str(tmp_path / sdist), str(tmp_path / f"{sdist}.publish.attestation"),
+    ]
+
+
+def _twine_upload(args: list[str]) -> subprocess.CompletedProcess[str]:
+    """The REAL twine (pixi.lock's 7.0.0), `upload --attestations`, at a dead local port: it sorts
+    its inputs and refuses before any network, so nothing can leave the machine."""
+    return subprocess.run(
+        [sys.executable, "-m", "twine", "upload", "--attestations", "--non-interactive",
+         "--repository-url", "http://127.0.0.1:9/legacy/", "-u", "__token__", "-p", "dummy",
+         *args],
+        capture_output=True, text=True, timeout=120,
+    )
+
+
+def _minimal_wheel(tmp_path: Path) -> Path:
+    """A tiny valid wheel (METADATA + WHEEL): all twine reads before it sorts its inputs."""
+    dist = tmp_path / "universal_wasm_loader-9.9.9-py3-none-any.whl"
+    info = "universal_wasm_loader-9.9.9.dist-info"
+    with zipfile.ZipFile(dist, "w") as z:
+        z.writestr(f"{info}/METADATA",
+                   "Metadata-Version: 2.1\nName: universal-wasm-loader\nVersion: 9.9.9\n")
+        z.writestr(f"{info}/WHEEL", "Wheel-Version: 1.0\nGenerator: test\n"
+                   "Root-Is-Purelib: true\nTag: py3-none-any\n")
+        z.writestr(f"{info}/RECORD", "")
+    return dist
+
+
+@pytest.mark.skipif(importlib.util.find_spec("twine") is None, reason="twine not installed")
+def test_real_twine_needs_the_attestations_passed_as_arguments(tmp_path: Path) -> None:
+    # Regression for 2.0.4's failed publish (2026-11-10): the workflow passed only the dists.
+    dist = _minimal_wheel(tmp_path)
+    pa.attestation_path(dist).write_text('{"version": 1}')
+
+    only_dist = _twine_upload([str(dist)])
+    assert only_dist.returncode != 0
+    assert "has no associated attestations" in only_dist.stdout + only_dist.stderr
+
+    as_printed = _twine_upload(pa.upload_args([(dist, pa.attestation_path(dist))]))
+    out = as_printed.stdout + as_printed.stderr
+    assert "has no associated attestations" not in out
+    assert f"Uploading {dist.name}" in out  # past the sorting: it tried the (dead) network
