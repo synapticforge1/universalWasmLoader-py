@@ -1,13 +1,14 @@
 """Bump the project version in pyproject.toml (the single source of truth).
 
 Updates `[project] version` to the next semver, keeps pixi.toml's mirror in
-sync, commits the one-line change, and stops there — tagging/pushing/releasing
-is scripts/release.py's job. Typical flow:
+sync, commits it as `bump to vX.Y.Z` (workspace H33 U2), and stops there. Pushing
+is scripts/release.py's job, and the TAG is CI's (H33 D1). Typical flow:
 
     pixi run python scripts/bump_version.py minor   # 1.0.0 -> 1.1.0, commits the bump
-    pixi run python scripts/release.py              # tags v1.1.0, pushes; the tag publishes
+    pixi run python scripts/release.py              # pushes main only; CI does the rest
 
 Usage: pixi run python scripts/bump_version.py <major|minor|patch|X.Y.Z> [options]
+  The level is REQUIRED (no default; H33 U1): it is the owner's.
   major|minor|patch   Increment that semver component (resets lower ones).
   X.Y.Z               Set an explicit version (must be valid semver).
   --no-commit         Edit the manifests only; don't commit.
@@ -139,12 +140,12 @@ def main(argv: list[str]) -> None:
             run("git", "add", "pixi.toml")
         if stamp_row:
             run("git", "add", "README.md")
-        run("git", "commit", "-m", f"Bump version: v{cur} -> v{new}")
+        run("git", "commit", "-m", f"bump to v{new}")  # workspace H33 U2: the uniform name
 
     print(f"Done: {new}")
     if do_commit:
-        print(f"Next: pixi run python scripts/release.py   "
-              f"# tags v{new}, pushes; the tag push starts the PyPI publish")
+        print("Next: pixi run python scripts/release.py   "
+              f"# pushes main only; CI checks, tags v{new}, makes the page, publishes")
 
 
 if __name__ == "__main__":

@@ -40,6 +40,8 @@ class Mock:
         self.log: list[tuple[str, str, str | None, Any]] = []
         self.post_status = 201
         self.stall: str | None = None  # "headers" | "drip": a slow server for the 7.21 cases
+        self.pypi_versions: set[str] = set()  # what the mock PyPI's project JSON lists
+        self.dispatch_publishes = True  # a dispatch makes the mock PyPI list the version
 
     def writes(self) -> list[tuple[str, str, str | None, Any]]:
         return [e for e in self.log if e[0] != "GET"]
@@ -76,6 +78,8 @@ def mock() -> Iterator[tuple[Mock, str]]:
                     time.sleep(0.2)
                 return None
             p = self.path
+            if p == "/pypi/universal-wasm-loader/json":
+                return self._send(200, {"releases": {v: [] for v in state.pypi_versions}})
             if p.startswith(f"/repos/{REPO}/git/ref/tags/"):
                 obj = state.tags.get(p.rsplit("/", 1)[1])
                 return self._send(200, {"object": obj}) if obj else self._send(404)
@@ -90,6 +94,18 @@ def mock() -> Iterator[tuple[Mock, str]]:
         def do_POST(self) -> None:  # noqa: N802
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             state.log.append(("POST", self.path, self.headers.get("Authorization"), body))
+            if self.path == f"/repos/{REPO}/git/tags":  # an annotated tag object
+                obj_sha = "d" * 40
+                state.tag_objects[obj_sha] = {"type": "commit", "sha": body["object"]}
+                return self._send(201, {"sha": obj_sha})
+            if self.path == f"/repos/{REPO}/git/refs":
+                state.tags[body["ref"].removeprefix("refs/tags/")] = {"type": "tag",
+                                                                      "sha": body["sha"]}
+                return self._send(201, {"ref": body["ref"]})
+            if self.path == f"/repos/{REPO}/actions/workflows/publish.yml/dispatches":
+                if state.dispatch_publishes:
+                    state.pypi_versions.add(body["ref"].removeprefix("v"))
+                return self._send(204)
             if self.path != f"/repos/{REPO}/releases" or state.post_status != 201:
                 return self._send(state.post_status, {"message": "nope"})
             rel = {"id": 7, "tag_name": body["tag_name"], "draft": False,
@@ -184,6 +200,105 @@ def test_every_request_has_a_total_time_limit(mock: tuple[Mock, str], stall: str
         gr.run(REPO, TAG, SHA, False, gr.Api(base, "t0k", limit=0.5))
     assert time.monotonic() - started < 2.0
     assert state.writes() == []
+
+
+# ── H33: CI's tag, the order check, the dispatch on the tag ──────────────────────────────────
+
+def _api(base: str, token: str | None = "t0k") -> Any:
+    return gr.Api(base, token)
+
+
+def test_tag_creates_an_annotated_tag_then_reads_it_back(mock: tuple[Mock, str]) -> None:
+    state, base = mock
+    assert gr.make_tag(REPO, TAG, SHA, False, _api(base)) == 0
+    tag_post, ref_post = state.writes()
+    assert tag_post[1] == f"/repos/{REPO}/git/tags" and tag_post[2] == "Bearer t0k"
+    assert tag_post[3]["object"] == SHA and tag_post[3]["type"] == "commit"
+    assert ref_post[1] == f"/repos/{REPO}/git/refs"
+    assert ref_post[3] == {"ref": f"refs/tags/{TAG}", "sha": "d" * 40}
+    assert state.log[-1][0] == "GET"  # read back after the writes
+    assert gr.tag_commit(_api(base), REPO, TAG) == SHA  # annotated, peels to the commit
+
+
+def test_tag_already_here_is_done_elsewhere_refused_both_without_writes(
+    mock: tuple[Mock, str]
+) -> None:
+    state, base = mock
+    state.tags[TAG] = {"type": "commit", "sha": SHA}
+    assert gr.make_tag(REPO, TAG, SHA, False, _api(base)) == 0
+    state.tags[TAG] = {"type": "commit", "sha": OTHER}
+    assert gr.make_tag(REPO, TAG, SHA, False, _api(base)) == 1  # a published tag never moves
+    assert state.writes() == []
+
+
+def test_tag_dry_run_and_no_token_write_nothing(mock: tuple[Mock, str]) -> None:
+    state, base = mock
+    assert gr.make_tag(REPO, TAG, SHA, True, _api(base)) == 0
+    assert gr.make_tag(REPO, TAG, SHA, False, _api(base, token=None)) == 1
+    assert state.writes() == []
+
+
+def test_check_needs_the_tag_here_and_its_page(mock: tuple[Mock, str]) -> None:
+    state, base = mock
+    assert gr.check(REPO, TAG, SHA, _api(base)) == 1  # no tag
+    state.tags[TAG] = {"type": "commit", "sha": SHA}
+    assert gr.check(REPO, TAG, SHA, _api(base)) == 1  # no page yet: page comes before publish
+    state.releases[TAG] = {"tag_name": TAG, "draft": False, "author": {"login": "bot"}}
+    assert gr.check(REPO, TAG, SHA, _api(base)) == 0
+    state.tags[TAG] = {"type": "commit", "sha": OTHER}
+    assert gr.check(REPO, TAG, SHA, _api(base)) == 1  # tag elsewhere
+    assert state.writes() == []
+
+
+def test_dispatch_starts_publish_on_the_tag_then_waits_for_pypi(
+    mock: tuple[Mock, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state, base = mock
+    monkeypatch.setenv("PYPI_URL", base)
+    state.tags[TAG] = {"type": "commit", "sha": SHA}
+    state.releases[TAG] = {"tag_name": TAG, "draft": False}
+    assert gr.dispatch(REPO, TAG, SHA, False, _api(base), wait=5, poll=0.05) == 0
+    (method, path, auth, body), = state.writes()
+    assert path == f"/repos/{REPO}/actions/workflows/publish.yml/dispatches"
+    assert body == {"ref": TAG, "inputs": {"ref": TAG}} and auth == "Bearer t0k"
+
+
+def test_dispatch_refuses_without_the_page_and_skips_when_published(
+    mock: tuple[Mock, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state, base = mock
+    monkeypatch.setenv("PYPI_URL", base)
+    state.tags[TAG] = {"type": "commit", "sha": SHA}
+    assert gr.dispatch(REPO, TAG, SHA, False, _api(base), wait=1) == 1  # no page: refused
+    state.releases[TAG] = {"tag_name": TAG, "draft": False}
+    state.pypi_versions.add(TAG[1:])
+    assert gr.dispatch(REPO, TAG, SHA, False, _api(base), wait=1) == 0  # re-run: already there
+    assert state.writes() == []
+
+
+def test_dispatch_fails_when_pypi_never_lists_the_version(
+    mock: tuple[Mock, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state, base = mock
+    monkeypatch.setenv("PYPI_URL", base)
+    state.tags[TAG] = {"type": "commit", "sha": SHA}
+    state.releases[TAG] = {"tag_name": TAG, "draft": False}
+    state.dispatch_publishes = False  # the dispatched run fails: PyPI never lists it
+    started = time.monotonic()
+    assert gr.dispatch(REPO, TAG, SHA, False, _api(base), wait=0.6, poll=0.1) == 1
+    assert time.monotonic() - started < 3.0
+
+
+def test_main_routes_the_commands(mock: tuple[Mock, str], monkeypatch: pytest.MonkeyPatch) -> None:
+    state, base = mock
+    monkeypatch.setenv("GITHUB_API_URL", base)
+    monkeypatch.setenv("GITHUB_TOKEN", "t0k")
+    args = ["--repo", REPO, "--tag", TAG, "--sha", SHA]
+    assert gr.main(["tag", *args]) == 0
+    assert gr.main(["check", *args]) == 1  # tag made, page not yet
+    assert gr.main(["page", *args]) == 0
+    assert gr.main(["check", *args]) == 0
+    assert gr.main(["bogus", *args]) == 1
 
 
 def test_malformed_tag_sends_no_request(mock: tuple[Mock, str]) -> None:

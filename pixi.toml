@@ -17,10 +17,10 @@ typecheck = "mypy src/ scripts/"
 # A test task alone is not a gate (pytest never type-checks).
 gate = { depends-on = ["lint", "typecheck", "test"] }
 # Versioning / release toolchain: scripts/*.py on pixi's Python (workspace tooling rule 1).
-#   pixi run bump minor   |   pixi run release   |   pixi run publish --yes
+#   pixi run bump <major|minor|patch>   |   pixi run release   (pushes main only; CI tags,
+#   makes the page and publishes — workspace H33; nothing uploads from this machine)
 bump = "python scripts/bump_version.py"
 release = "python scripts/release.py"
-publish = "python scripts/publish.py"
 
 [dependencies]
 python = ">=3.11,<4"
@@ -35,8 +35,8 @@ pytest-asyncio = ">=0.23.0"
 ruff = ">=0.9.0"
 mypy = ">=1.10.0"
 
-# Packaging toolchain — `scripts/release.py` and `scripts/publish.py`
-# run `pixi run python -m build` / `... -m twine ...` inside this env.
+# Packaging toolchain — `scripts/release.py`'s gate and CI run `pixi run python -m build` /
+# `... -m twine check` inside this env (the upload itself is CI's publish job only).
 # twine >=6.1 / packaging >=24.2: older twine rejects hatchling's PEP 639
 # `License-File` (Metadata-Version 2.4) field in `twine check`.
 [feature.publish.pypi-dependencies]

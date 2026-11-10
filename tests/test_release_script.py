@@ -1,18 +1,24 @@
-"""scripts/release.py helpers: the ls-remote read-back and the Release-page owner item (H30)."""
+"""scripts/release.py helpers: the ls-remote read-back and PyPI's project release list (H33 U4).
+The guards themselves are rehearsed end to end against a scratch bare origin (cmem/release.md)."""
 from __future__ import annotations
 
 import importlib.util
+import io
+import json
 import sys
-import urllib.parse
+import urllib.error
 from pathlib import Path
 from types import ModuleType
+from typing import Any
+
+import pytest
 
 SCRIPTS = Path(__file__).parent.parent / "scripts"
 
 
 def _load() -> ModuleType:
     if str(SCRIPTS) not in sys.path:
-        sys.path.insert(0, str(SCRIPTS))  # release.py imports _common from its own folder
+        sys.path.insert(0, str(SCRIPTS))  # release.py imports _common / pypi_files beside it
     spec = importlib.util.spec_from_file_location("release_script", SCRIPTS / "release.py")
     assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
@@ -37,22 +43,40 @@ def test_remote_refs_keeps_peeled_tags_apart() -> None:
     assert refs["refs/tags/v2.0.0^{}"].startswith("21e680a")  # the commit it peels to
 
 
-def test_release_page_url_for_each_github_remote_form() -> None:
-    for remote in (
-        "https://github.com/synapticforge1/universalWasmLoader-py.git",
-        "https://github.com/synapticforge1/universalWasmLoader-py",
-        "git@github.com:synapticforge1/universalWasmLoader-py.git",
-        "ssh://git@github.com/synapticforge1/universalWasmLoader-py.git",
-    ):
-        url = rel.release_page_url(remote, "v2.0.1", "notes & more?")
-        assert url is not None, remote
-        base, _, query = url.partition("?")
-        assert base == "https://github.com/synapticforge1/universalWasmLoader-py/releases/new"
-        assert urllib.parse.parse_qs(query) == {
-            "tag": ["v2.0.1"], "title": ["v2.0.1"], "body": ["notes & more?"]
-        }
+def test_release_makes_no_tag_and_uploads_nothing() -> None:
+    # H33 D1 / rule 3: the release script pushes main only — no `git tag`, no twine upload.
+    src = (SCRIPTS / "release.py").read_text(encoding="utf-8")
+    code = "\n".join(line for line in src.splitlines() if not line.lstrip().startswith("#"))
+    assert '"tag"' not in code and "'tag'" not in code
+    assert "upload" not in code.split('"""', 2)[2]  # outside the docstring
+    assert not (SCRIPTS / "publish.py").exists()
 
 
-def test_release_page_url_none_for_other_hosts() -> None:
-    assert rel.release_page_url("/tmp/scratch-bare.git", "v1", "x") is None
-    assert rel.release_page_url("https://gitlab.com/a/b.git", "v1", "x") is None
+def test_pypi_versions_reads_the_project_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[str] = []
+
+    def fake(url: Any, **_: Any) -> Any:
+        seen.append(str(url))
+        return io.BytesIO(json.dumps({"releases": {"2.0.2": [], "2.0.3": []}}).encode())
+
+    monkeypatch.setattr(rel.urllib.request, "urlopen", fake)
+    assert rel.pypi_versions("universal-wasm-loader") == {"2.0.2", "2.0.3"}
+    # the PROJECT list, never the version's own URL (a caching registry caches a miss)
+    assert seen == ["https://pypi.org/pypi/universal-wasm-loader/json"]
+
+
+def test_pypi_versions_404_is_no_project_other_errors_raise(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake404(*_: Any, **__: Any) -> Any:
+        raise urllib.error.HTTPError("u", 404, "x", {}, None)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(rel.urllib.request, "urlopen", fake404)
+    assert rel.pypi_versions("nope") == set()
+
+    def fake500(*_: Any, **__: Any) -> Any:
+        raise urllib.error.HTTPError("u", 500, "x", {}, None)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(rel.urllib.request, "urlopen", fake500)
+    with pytest.raises(RuntimeError, match="HTTP 500"):
+        rel.pypi_versions("universal-wasm-loader")

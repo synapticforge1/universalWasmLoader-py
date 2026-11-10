@@ -1,10 +1,17 @@
-"""Create the GitHub Release page for a tag through GitHub's REST API (stdlib only).
+"""CI's release steps through GitHub's REST API (stdlib only), in the owner's order (workspace
+letter H33, D1): checks → `tag` → `page` → `dispatch` (the PyPI publish, on the tag).
 
-Run by `.github/workflows/publish.yml`'s `release` job after the PyPI upload, with the job's own
-`GITHUB_TOKEN` (`contents: write`). Never the GitHub CLI (workspace H30). The job fetches this file
-from the repository at the checked commit, so no other code runs beside the write token (C30).
+Run by `.github/workflows/publish.yml`'s jobs with each job's own `GITHUB_TOKEN`. Never the GitHub
+CLI (workspace H30). Each job fetches this file from the repository at the checked commit, so no
+other code runs beside a write token (C30).
 
-Safety, in order (workspace Tooling rule 9's hazard, found by loader-rs):
+  tag       the annotated tag on --sha (H33 U6): there = done, elsewhere = refused, read back
+  page      the GitHub Release page (U7), below; the default when no command is given
+  check     read-only: the tag peels to --sha AND its page exists — the publish run's guard
+  dispatch  start publish.yml ON THE TAG (the `pypi` environment admits only `v*` refs), then
+            wait (--wait seconds, fatal) until PyPI's project list names the version
+
+The page, in order (workspace Tooling rule 9's hazard, found by loader-rs):
   1. the tag must already exist on GitHub and peel (annotated tags followed) to --sha, because
      `POST /releases` would otherwise CREATE a missing tag at the default branch;
   2. an existing Release for the tag means done — nothing is changed, so re-runs are safe;
@@ -13,10 +20,12 @@ Safety, in order (workspace Tooling rule 9's hazard, found by loader-rs):
 Only HTTP 404 means "absent"; any other unexpected status is an error. Every request carries
 its own 30 s limit, request to last byte (workspace best-practice 7.21; letter H32).
 
-Usage: python scripts/github_release.py --repo OWNER/NAME --tag vX.Y.Z --sha COMMIT [--dry-run]
-  env GITHUB_TOKEN   required unless --dry-run (reads work without it on a public repo)
+Usage: python scripts/github_release.py [tag|page|check|dispatch] --repo OWNER/NAME
+         --tag vX.Y.Z --sha COMMIT [--dry-run] [--wait SECONDS]
+  env GITHUB_TOKEN   required for writes (reads work without it on a public repo)
   env GITHUB_API_URL default https://api.github.com (a mock server in the tests)
-Exit 0 = the Release exists (created now or before) / dry run; 1 = refused or failed.
+  env PYPI_URL       default https://pypi.org (a mock server in the tests)
+Exit 0 = done (made now or before) / dry run; 1 = refused or failed.
 """
 from __future__ import annotations
 
@@ -25,6 +34,7 @@ import os
 import re
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -173,10 +183,126 @@ def run(repo: str, tag: str, sha: str, dry_run: bool, api: Api) -> int:
     return 0
 
 
+TAG_PATTERN = re.compile(r"v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?")
+
+
+def say(msg: str) -> None:
+    print(f"github_release: {msg}", flush=True)
+
+
+def make_tag(repo: str, tag: str, sha: str, dry_run: bool, api: Api) -> int:
+    """H33 U6: CI's annotated tag on `sha` — there already = done (a re-run), elsewhere = refused
+    (a published tag never moves); else `POST git/tags` + `POST git/refs`, then read back."""
+    if TAG_PATTERN.fullmatch(tag) is None:
+        say(f"refused: {tag!r} is not a release tag v<semver>")
+        return 1
+    peeled = tag_commit(api, repo, tag)
+    if peeled == sha:
+        say(f"tag {tag} already on {sha} — nothing to do")
+        return 0
+    if peeled is not None:
+        say(f"refused: tag {tag} exists on {peeled}, not {sha}; a published tag never moves")
+        return 1
+    if dry_run:
+        say(f"dry run: would create the annotated tag {tag} on {sha}")
+        return 0
+    if not api.token:
+        say("refused: no GITHUB_TOKEN")
+        return 1
+    status, obj = api.call("POST", f"/repos/{repo}/git/tags", {
+        "tag": tag, "message": f"universalWasmLoader-py {tag}", "object": sha, "type": "commit",
+    })
+    if status != 201:
+        say(f"failed: POST git/tags answered {status}")
+        return 1
+    status, _ = api.call("POST", f"/repos/{repo}/git/refs",
+                         {"ref": f"refs/tags/{tag}", "sha": obj["sha"]})
+    if status != 201:
+        say(f"failed: POST git/refs answered {status}")
+        return 1
+    if tag_commit(api, repo, tag) != sha:
+        say(f"failed: tag {tag} does not peel to {sha} after it was made")
+        return 1
+    say(f"created the annotated tag {tag} (object {obj['sha'][:12]}) on {sha}")
+    return 0
+
+
+def check(repo: str, tag: str, sha: str, api: Api) -> int:
+    """The owner's order, asserted by the publish run: the tag peels to `sha` AND its page exists
+    (checks → tag → page → publish). Read-only."""
+    peeled = tag_commit(api, repo, tag)
+    if peeled != sha:
+        say(f"refused: tag {tag} is {peeled or 'absent'}, not {sha}")
+        return 1
+    page = find_release(api, repo, tag)
+    if page is None or page.get("draft"):
+        say(f"refused: no published Release page for {tag} yet (the page comes before publish)")
+        return 1
+    say(f"order holds: {tag} = {sha[:12]}, page by {(page.get('author') or {}).get('login')}")
+    return 0
+
+
+def pypi_lists(version: str, limit: float = 30) -> bool:
+    """Does PyPI's PROJECT release list name `version`? (Never the version's own URL before it
+    exists: a caching registry caches a miss — workspace best-practices L3.)"""
+    url = os.environ.get("PYPI_URL", "https://pypi.org").rstrip("/") + f"/pypi/{PYPI_PROJECT}/json"
+
+    def fetch() -> bool:
+        try:
+            with urllib.request.urlopen(url, timeout=limit + 5) as resp:
+                return version in json.load(resp).get("releases", {})
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return False
+            raise ApiError(f"GET {url}: HTTP {e.code}") from e
+
+    return with_limit(fetch, limit, url)
+
+
+def dispatch(repo: str, tag: str, sha: str, dry_run: bool, api: Api, wait: float,
+             poll: float = 15.0) -> int:
+    """Start the publish ON THE TAG (`workflow_dispatch` of publish.yml with ref = the tag): the
+    `pypi` environment admits only `v*` refs, and a GITHUB_TOKEN-made tag starts no run. Then wait
+    (fatal) until PyPI lists the version, so this run's result is the publish's."""
+    if check(repo, tag, sha, api) != 0:
+        return 1
+    if dry_run:
+        say(f"dry run: would dispatch publish.yml on {tag}")
+        return 0
+    if not api.token:
+        say("refused: no GITHUB_TOKEN")
+        return 1
+    if pypi_lists(tag[1:]):
+        say(f"PyPI already lists {tag[1:]} — nothing to dispatch")
+        return 0
+    status, _ = api.call("POST", f"/repos/{repo}/actions/workflows/publish.yml/dispatches",
+                         {"ref": tag, "inputs": {"ref": tag}})
+    if status != 204:
+        say(f"failed: the dispatch answered {status}")
+        return 1
+    say(f"dispatched publish.yml on {tag}; waiting up to {wait:g} s for PyPI to list {tag[1:]}")
+    deadline = time.monotonic() + wait
+    while time.monotonic() < deadline:
+        time.sleep(min(poll, max(0.0, deadline - time.monotonic())))
+        try:
+            if pypi_lists(tag[1:]):
+                say(f"PyPI lists {tag[1:]}")
+                return 0
+        except (ApiError, TimeoutError, OSError) as e:
+            say(f"(PyPI not readable yet: {e})")
+    say(f"failed: PyPI did not list {tag[1:]} within {wait:g} s — see the dispatched run")
+    return 1
+
+
+COMMANDS = ("tag", "page", "check", "dispatch")
+
+
 def main(argv: list[str]) -> int:
-    args = {"--repo": "", "--tag": "", "--sha": ""}
+    command = argv[0] if argv and argv[0] in COMMANDS else "page"
+    rest = argv[1:] if argv and argv[0] in COMMANDS else argv
+    args = {"--repo": "", "--tag": "", "--sha": "", "--wait": "1200"}
     dry_run = False
-    it = iter(argv)
+    it = iter(rest)
     for arg in it:
         if arg == "--dry-run":
             dry_run = True
@@ -190,8 +316,15 @@ def main(argv: list[str]) -> int:
         return 1
     api = Api(os.environ.get("GITHUB_API_URL", "https://api.github.com"),
               os.environ.get("GITHUB_TOKEN") or None)
+    repo, tag, sha = args["--repo"], args["--tag"], args["--sha"]
     try:
-        return run(args["--repo"], args["--tag"], args["--sha"], dry_run, api)
+        if command == "tag":
+            return make_tag(repo, tag, sha, dry_run, api)
+        if command == "check":
+            return check(repo, tag, sha, api)
+        if command == "dispatch":
+            return dispatch(repo, tag, sha, dry_run, api, float(args["--wait"]))
+        return run(repo, tag, sha, dry_run, api)
     except ApiError as e:
         print(f"github_release: error: {e}", file=sys.stderr)
         return 1
