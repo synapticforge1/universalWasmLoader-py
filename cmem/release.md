@@ -40,7 +40,10 @@ if it was not given.** Nothing tags or uploads from the owner's machine.
    there = done; page there = done; PyPI files there = skipped). Never a new tag for the same
    code, never a moved tag.
 
-**Measured so far (2026-11-10, before the first release in this order):** 141 tests incl. mock-API
+**MEASURED on GitHub by 2.0.5 (2026-11-10):** the whole order, CI's tag, the dispatch on the tag,
+the Sigstore signature, the upload with attestations, PyPI's provenance. Two lessons from 2.0.4 /
+2.0.5, both fixed: twine must be GIVEN each attestation with its dist; PyPI reports this project's
+publisher without an environment. **Before that (the rehearsal):** 141 tests incl. mock-API
 cases for `tag` / `check` / `dispatch` / the read-back / signing; 7 one-line mutants each caught;
 read-only runs against the real GitHub (`tag`, `check`, `dispatch --dry-run`) and PyPI (the
 read-back FAILS on 2.0.3 — no provenance — and passes on `pypi-attestations` 0.0.31 with its
@@ -50,6 +53,30 @@ against a scratch bare origin (every guard refused with nothing pushed; the real
 the tag, the attestation signature, the provenance read-back.
 
 ## Release History (newest first)
+
+### 2.0.5 — 2026-11-10 · patch · the first PUBLISHED release in the owner's order, with PEP 740
+
+**What changed:** no library change. It ships the H33 release order (CI checks → CI's tag → the
+page → the PyPI publish on the tag), PEP 740 attestations, and the fix for 2.0.4's failure
+(`a8c950d`: twine is given each attestation with its dist).
+**Out (owner: "release", level patch; then "Release 2.0.5 now"):** `bump to v2.0.5` `3d86f5c`;
+`release.py` pushed `main` only (no tag; read back). The push run **42926145910**, all green:
+`checks` → `tag`, CI's annotated `v2.0.5` (object `a9b7b95`, peels to `3d86f5c`) → `release`, the
+page by `github-actions[bot]` (23:47:57Z) → `dispatch`, which saw PyPI list 2.0.5. The dispatched
+run **42926306108**: `build` ✓, then `publish`: the order check, the plan, the signing and **the
+upload ✓** (`…-2.0.5-py3-none-any.whl` sha256 `4b70f712…` 23:49:41Z; `…-2.0.5.tar.gz`
+`8c41d103…` 23:49:42Z). Then the fatal read-back FAILED: PyPI reports the publisher's
+`environment` as `null` (the Trusted Publisher is registered without one), and the check
+required `"pypi"`. Fixed in `63e4e7a` (identity = repository + workflow must match; an environment
+only when PyPI reports one). That run stays red, because a re-run uses the tag's own check.
+**Read back (2026-11-10):** PyPI serves both files. Each has a PEP 740 provenance (integrity API
+200, `{kind: GitHub, repository: synapticforge1/universalWasmLoader-py, workflow: publish.yml}`,
+also linked from the simple index). The fixed read-back, run locally against the real PyPI, exits
+0, and exits 1 for a wrong repository. Page `v2.0.5` by `github-actions[bot]`, made before the
+upload (`releases.atom`; the public API's hourly limit was spent). **U10, as a user:** a fresh
+venv, `pip install universal-wasm-loader==2.0.5` from PyPI (site-packages): `add(3, 4)` = 7,
+`greet('World')` = "Hello, World!", `add(2.7, 1)` refused, `imports_50` without callbacks
+refused, naming both.
 
 ### 2.0.4 — 2026-11-10 · patch · TAGGED, page made, NEVER PUBLISHED (superseded by 2.0.5)
 
