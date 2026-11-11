@@ -4,17 +4,16 @@ Each item: what was found, how (measured / read / reasoned), and what is propose
 is changed without the owner. Close an item by moving its outcome into the topic file it belongs
 to and deleting it here.
 
-## OWNER (PyPI web UI, optional): the Trusted Publisher has no environment
+## To verify at the next release: PyPI's Trusted Publisher environment
 
-**Measured 2026-11-10** (PyPI's integrity API for 2.0.5): the publisher PyPI recorded is
+**Measured 2026-11-10** (PyPI's integrity API for 2.0.5): PyPI recorded the publisher as
 `{kind: GitHub, repository: synapticforge1/universalWasmLoader-py, workflow: publish.yml,
-environment: null}`. So the Trusted Publisher on PyPI is registered WITHOUT the `pypi`
-environment, although this memory (from 2026-06-19 / 2026-10-21) said "Environment: pypi". PyPI
-therefore accepts a token minted by `publish.yml` from ANY job of that workflow, not only from the
-`publish` job in the `pypi` environment. The GitHub side still holds: only `publish` has
-`id-token: write`, and the environment admits only `v*` refs. **If wanted:** pypi.org →
-universal-wasm-loader → Publishing → edit the GitHub publisher → Environment `pypi`. After that,
-PyPI would report `environment: pypi`, and the read-back accepts either answer.
+environment: null}`, i.e. a PyPI-side Trusted Publisher entry without the environment (the GitHub
+environment `pypi` already existed and the job ran in it). **Owner, 2026-11-10: "fixed"** on
+PyPI's Publishing page. 2.0.5's provenance stays as recorded. **Check at the next release:** its
+files' provenance should report `environment: "pypi"`
+(`GET https://pypi.org/integrity/universal-wasm-loader/<v>/<file>/provenance`); then close this
+item. The read-back accepts either answer, so nothing blocks on it.
 
 Closed (outcomes in [overview.md](overview.md), [release.md](release.md) and
 [working-rules.md](working-rules.md)): 2026-11-10 — 2.0.4's failed publish (fixed `a8c950d`,
