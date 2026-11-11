@@ -6,7 +6,7 @@ instantiates WebAssembly modules and, when a companion `.wit` file is present, a
 Canonical ABI so you call WIT exports with idiomatic Python values (`int`/`float`, `bool`,
 `str`) instead of raw i32/pointer pairs.
 
-- **Conforms to:** the cross-language `SPEC.md` **v4.0.0**
+- **Conforms to:** the cross-language `SPEC.md` **v4.0.1**
 - **PyPI package:** `universal-wasm-loader`
 - **WASM runtime:** [`wasmtime`](https://pypi.org/project/wasmtime/) ≥ 26.0.0
 - **License:** MIT
