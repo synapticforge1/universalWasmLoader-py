@@ -134,6 +134,14 @@ def test_readback_ok_when_served_and_attested_by_us(monkeypatch: pytest.MonkeyPa
     assert _problems() == []
 
 
+def test_readback_accepts_a_publisher_without_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    # What PyPI really reported for 2.0.5 (2026-11-10): "environment": null — the Trusted
+    # Publisher is registered without one. The identity (repository + workflow) still decides.
+    unconstrained = {**OURS, "environment": None}
+    _pypi(monkeypatch, {WHL: "a", SDIST: "b"}, {WHL: [unconstrained], SDIST: [unconstrained]})
+    assert _problems() == []
+
+
 @pytest.mark.parametrize(
     ("served", "provenance", "fault"),
     [
@@ -144,8 +152,11 @@ def test_readback_ok_when_served_and_attested_by_us(monkeypatch: pytest.MonkeyPa
          f"{SDIST}: no PEP 740 provenance"),
         ({WHL: "a", SDIST: "b"}, {WHL: [OURS], SDIST: [{**OURS, "repository": "evil/fork"}]},
          f"{SDIST}: no PEP 740 provenance"),
+        ({WHL: "a", SDIST: "b"}, {WHL: [OURS], SDIST: [{**OURS, "environment": "staging"}]},
+         f"{SDIST}: no PEP 740 provenance"),
     ],
-    ids=["version-404", "file-missing", "no-provenance", "other-workflow", "other-repo"],
+    ids=["version-404", "file-missing", "no-provenance", "other-workflow", "other-repo",
+         "other-environment"],
 )
 def test_readback_names_each_fault(
     monkeypatch: pytest.MonkeyPatch, served: Any, provenance: Any, fault: str

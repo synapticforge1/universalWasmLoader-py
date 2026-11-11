@@ -109,10 +109,14 @@ def readback_problems(
         url = f"{pypi_base()}/integrity/{package}/{version}/{name}/provenance"
         doc = get_json(url)
         publishers = [b.get("publisher") or {} for b in (doc or {}).get("attestation_bundles", [])]
+        # The identity (repository + workflow) must match. The environment must match only when
+        # PyPI reports one: `null` = the Trusted Publisher is registered without an environment
+        # (measured for this project on 2.0.5, 2026-11-10); a DIFFERENT environment still fails.
         ours = [p for p in publishers
                 if p.get("kind") == "GitHub"
                 and str(p.get("repository", "")).lower() == repo.lower()
-                and p.get("workflow") == workflow and p.get("environment") == environment]
+                and p.get("workflow") == workflow
+                and p.get("environment") in (None, "", environment)]
         if not ours:
             problems.append(f"{name}: no PEP 740 provenance from {repo} {workflow} [{environment}]"
                             f" (found: {publishers or 'none'})")
