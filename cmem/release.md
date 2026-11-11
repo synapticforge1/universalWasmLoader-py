@@ -54,6 +54,25 @@ the tag, the attestation signature, the provenance read-back.
 
 ## Release History (newest first)
 
+### 2.0.6 — 2026-11-11 · patch · SPEC 4.0.1; the first release green on its FIRST attempt
+
+**What changed:** no library change. It claims SPEC 4.0.1 (`fdca3d9`, a §11.1 clarification, n/a
+here), includes the read-back fix (`63e4e7a`: the publisher's environment is checked only when
+PyPI reports one), and carries memory.
+**Out (owner: "release", level patch):** `bump to v2.0.6` `6b4c127` (floor patch: "SPEC.md v4.0.0
+-> v4.0.1"); `release.py` pushed `main` only, with no tag (read back). The push run
+**42931449779**, green: `checks` → `tag`, CI's annotated `v2.0.6` (object `0b9a844`, peels to
+`6b4c127`) → `release`, the page by `github-actions[bot]` (00:28:12Z) → `dispatch` (PyPI listed
+the version). The dispatched run **42931608361**, green on its first attempt: `build` →
+`publish`; the upload 00:28:54–58Z, and **the fatal read-back passed in 46 s**. CI on the same
+commit was green.
+**Read back:** PyPI serves `…-2.0.6-py3-none-any.whl` sha256 `357df99b…` and `…-2.0.6.tar.gz`
+`4a65848e…`, each with a PEP 740 provenance `{GitHub, synapticforge1/universalWasmLoader-py,
+publish.yml, environment: "pypi"}`. The owner's PyPI Trusted Publisher fix is **verified**
+(2.0.5's was `null`). **U10:** a fresh venv, `pip install universal-wasm-loader==2.0.6`:
+`add(3, 4)` = 7, `greet('World')` = "Hello, World!", and both refusals. pip's `/simple/` index
+lagged the JSON API by a few minutes after the upload; a retry with `--no-cache-dir` found it.
+
 ### 2.0.5 — 2026-11-10 · patch · the first PUBLISHED release in the owner's order, with PEP 740
 
 **What changed:** no library change. It ships the H33 release order (CI checks → CI's tag → the

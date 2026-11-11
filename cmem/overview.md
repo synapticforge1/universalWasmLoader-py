@@ -22,8 +22,8 @@ conformance tests. The JS repo is vendored as a git submodule at
   they were removed from PyPI. **Owner, 2026-11-08: "yes 1.1.1 is the only one on pypi"** —
   intended. Those three version numbers stay reserved on PyPI forever. Brought to parity with the `-c` and `-zig` ports on
   2026-06-19. Live at <https://pypi.org/project/universal-wasm-loader/>.
-- **Latest: 2.0.5 (2026-11-10)** on PyPI (with PEP 740 attestations) and GitHub; 2.0.4 was
-  tagged but never published. Every release, newest first, with a summary
+- **Latest: 2.0.6 (2026-11-11)** on PyPI (PEP 740 attestations, publisher environment `pypi`)
+  and GitHub; SPEC 4.0.1. 2.0.4 was tagged but never published. Every release, newest first, with a summary
   of what changed: [release.md](release.md) § "Release History".
 - **Home:** <https://github.com/synapticforge1/universalWasmLoader-py> — the **`synapticforge1`**
   GitHub organization (owner-controlled). Transferred from the personal account `jrmarcum`
@@ -68,8 +68,8 @@ not changed by this move.
 - **Package/env manager:** pixi (conda-forge channel for Python; PyPI for deps). Editable
   install of the package itself plus a `dev` feature for the test/lint/type tools.
 - **Build backend:** hatchling (wheel packages `src/universal_wasm_loader`).
-- **Registry:** PyPI, package name **`universal-wasm-loader`** (latest published **`2.0.5`**,
-  2026-11-10; 2.0.4 never published; 1.0.0 / 1.0.1 / 1.1.0 removed, owner-confirmed; PyPI never reuses a version number,
+- **Registry:** PyPI, package name **`universal-wasm-loader`** (latest published **`2.0.6`**,
+  2026-11-11; 2.0.4 never published; 1.0.0 / 1.0.1 / 1.1.0 removed, owner-confirmed; PyPI never reuses a version number,
   removed ones included). Releases: [release.md](release.md).
 
 ## Repository layout
@@ -196,7 +196,7 @@ clarification, no loader has to change" (-js `ac1de68`, released in -js v2.0.3):
 for a port whose zero-value options type means the default limit (loader-go's case). n/a here: no
 `options`, no http path, so no behaviour change. README declares `SPEC.md` **v4.0.1**,
 `api-surface.json` `"spec": "4.0.1"` (re-baseline alone, Rule 5), the submodule moved `1169ab9` →
-`15388fd` (-js v2.0.3). compat floor since v2.0.5: patch. It reaches PyPI with the next release.
+`15388fd` (-js v2.0.3). compat floor since v2.0.5: patch. **On PyPI since 2.0.6** (2026-11-11).
 
 ## SPEC conformance status — ✅ ALIGNED TO SPEC 3.0.0 (2026-06-15) — history; 4.0.0 above
 
